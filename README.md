@@ -10,9 +10,7 @@
 
 **Key Features:**
 
-- Feature 1: [Brief description]
-- Feature 2: [Brief description]
-- Feature 3: [Brief description]
+- Automated Deployment and Management of GNB Software on Cloud Environment
 
 **Target Users:** [Developers/Researchers/System Administrators/etc.]
 
@@ -54,7 +52,8 @@ Write your installation/integration plan & status in here:
 | Setup Master Node                       | run script `provision/master_setup.sh` on master Node | Turn this node into master node and install necessary components for O-Cloud Operation | :white_check_mark: |
 | Setup Worker Node for RT Workload       | run script `provision/worker_setup.sh` on worker Node | Turn this node into worker node and adjust the kernel into RT | :white_check_mark: |
 | Build and Publish OAI 7.2 Image         | run script `deployment/build_image.sh`                | You can run this from any machine with internet connection   | :white_check_mark: |
-| Deploy OAI 7.2 Chart                    | run script `                                          |                                                              |                    |
+| Deploy OAI 7.2 Chart                    | run script `deployment/deploy_test.sh`                | Deploy Chart of OAI GNB                                      | :white_check_mark: |
+|                                         |                                                       |                                                              |                    |
 
 
 
@@ -63,11 +62,17 @@ Write your installation/integration plan & status in here:
 **Important Components to Include in System Architecture (O-RAN O-DU Architecture Pattern):**
 
 1. **Master Node**
+   1. Cilium CNI
+   2. Multus CNI
+   3. OpenEBS	
+
 2. **Worker Node**
+   1. RT Kernel
+   2. SRIOV Enabled
+   3. 
 
-```mermaid
 
-```
+
 
 ## Repository Structure
 
@@ -81,37 +86,35 @@ tree command
 
 ## Minimum Specification Requirements
 
-| Component        | Requirement               |
-| ---------------- | ------------------------- |
-| Operating System | Ubuntu 22.04 or higher    |
-| CPU              | 2 GHz dual-core processor |
-| Memory           | 4 GB RAM                  |
-| GCC Version      | 7.5 or higher             |
-| Python Version   | 3.6 or higher             |
-| Kubernetes       | 1.18 or higher            |
-|                  |                           |
+| Component        | Requirement                            |
+| ---------------- | -------------------------------------- |
+| Operating System | Red Hat Enterprise Linux 9.0 or Higher |
+| CPU              | 2 GHz, 8-core                          |
+| Memory           | 16 GB RAM                              |
+| Kubernetes       | 1.28 or higher                         |
+| CRI-O            | 1.28 or higher                         |
+| HW Motherboard   | Support NUMA                           |
+| HW NIC           | Support SRIOV                          |
+
+
 
 ## Table of Paramaters
 
 > [!NOTE]
 > **Parameter Comparison Guidelines:**
 >
-> 1. **Standards Compliance** - All vendor implementations must maintain backward compatibility with 3GPP standards
-> 2. **Performance Enhancement** - Vendor-specific features often provide performance improvements beyond standard requirements
-> 3. **Interoperability** - Ensure vendor-specific parameters don't compromise network interoperability
-> 4. **Documentation** - Always refer to the latest version of specifications as standards evolve
-> 5. **Testing** - Validate vendor-specific implementations against 3GPP test cases
+> 1. 
 
 ### Inputs Parameters
 
-| Parameter Name                  | Description                                    | 3GPP Reference                                                                      | Samsung                                                         |
+| Parameter Name                  | Description                                    | ...                                                                    | ...                                                       |
 | ------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| **Cell ID**               | Unique identifier for each cell in the network | [TS 36.211 Section 6.11](https://www.3gpp.org/ftp/Specs/archive/36_series/36.211/)     | CellId                                                          |
-| **Tracking Area Code**    | Area identifier for location management        | [TS 23.003 Section 19.4.2.3](https://www.3gpp.org/ftp/Specs/archive/23_series/23.003/) | TAC_Optimized                                                   |
-| **PLMN ID**               | Public Land Mobile Network identifier          | [TS 23.003 Section 2.2](https://www.3gpp.org/ftp/Specs/archive/23_series/23.003/)      | PLMN_Code                                                       |
-| **Bandwidth**             | Radio channel bandwidth allocation             | [TS 36.104 Section 5.6](https://www.3gpp.org/ftp/Specs/archive/36_series/36.104/)      | [Extended_BW](https://www.samsung.com/us/business/networks/)       |
-| **Transmission Power**    | Maximum transmission power per antenna         | [TS 36.101 Section 6.2.5](https://www.3gpp.org/ftp/Specs/archive/36_series/36.101/)    | [TxPwr_Adaptive](https://www.zte.com.cn/global/products/wireless/) |
-| **Antenna Configuration** | Number of transmit/receive antenna elements    | [TS 36.213 Section 7.1](https://www.3gpp.org/ftp/Specs/archive/36_series/36.213/)      | MIMO_Setup                                                      |
+|                |             |      |      |
+|                |             |      |      |
+|                |             |      |      |
+|                |             |      |      |
+|                |             |      |      |
+|                |             |      |      |
 
 Output Parameters
 
@@ -126,13 +129,9 @@ Output Parameters
 ## Message Sequence Chart (MSC)
 
 > [!NOTE]
-> **MSC Should Include:**
->
-> 1. **Actors/Components** - All participating systems and users
-> 2. **Message Flow** - Sequential communication between components
-> 3. **Timing** - Order of operations and dependencies
-> 4. **Error Handling** - Alternative flows and error scenarios
-> 5. **Data Validation** - Authentication and authorization steps
+> ...
+
+
 
 
 
