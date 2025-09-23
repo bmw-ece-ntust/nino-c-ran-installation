@@ -43,6 +43,8 @@ ssh bmw@192.168.8.75
 
 Write your installation/integration plan & status in here:
 
+### User Provisioned
+
 | Step                         | Command/Action                                               | Description                                        | Status |
 | ---------------------------- | ------------------------------------------------------------ | -------------------------------------------------- | ------ |
 | Check Server Support for SRIOV and NUMA | Human Intervention                                    | Google this up., based on your machine.                      | :white_check_mark: |
@@ -55,12 +57,19 @@ Write your installation/integration plan & status in here:
 | Deploy OAI 7.2 Chart                    | run script `deployment/deploy_test.sh`                | Deploy Chart of OAI GNB                                      | :white_check_mark: |
 | Integrate OAI with O-RU                                       | Human Intervention                                                       | Update the configmap parameters based on the connected O-RU                                                               | :white_check_mark:                    |
 | Integrate OAI with Core Network | Human Intervention | Update the values.yaml based on the network plan (PLMN, N2 & N3 Connection) | :white_check_mark: |
-| End-to-end integration with COTS UE | Humen Intervention |  |  |
+| End-to-end integration with COTS UE | Humen Intervention | Register UE to CN that conncected to GNB<br>*Current Status: UE got relese after PDU requests.* | :warning: |
 
+
+
+### CICD Provisioned Infra
+
+> [!NOTE]
+> **TBD**
+> This implementation will proceed after the user provisioned setup is finished
 
 ## System Architecture
 
-![](/home/infidel/Sync/NTUST/BMW-Lab/LabNotes/template/assets/sys-architecture.svg)
+![](assets/sys-architecture.svg)
 
 **Important Components to Include in System Architecture (O-RAN O-DU Architecture Pattern):**
 
@@ -68,11 +77,9 @@ Write your installation/integration plan & status in here:
    1. Cilium CNI
    2. Multus CNI
    3. OpenEBS	
-
 2. **Worker Node**
    1. RT Kernel
    2. SRIOV Enabled
-   3. `
 
 
 
@@ -126,7 +133,7 @@ Write your installation/integration plan & status in here:
 
 ### Master Node Setup
 
-1. SSH into RHEL System
+1. SSH into node machine
 
 2. Git Clone this Repo and Check the script
 
@@ -172,7 +179,7 @@ Write your installation/integration plan & status in here:
 
 1. Make sure SRIOV and CPU virtualization is already enabled from BIOS/BMC
 
-2. SSH into machine
+2. SSH into node machine
 
 3. Git clone this repo to the worker node
 
@@ -191,8 +198,6 @@ Write your installation/integration plan & status in here:
       ```
       sudo subscription-manager repos --enable rhel-9-for-x86_64-rt-rpms
       ```
-
-      
 
    3. Run the worker_setup.sh script to provision your system 
 
@@ -263,7 +268,7 @@ Write your installation/integration plan & status in here:
 | --master-ip      | 192.168.8.100                                   |                                                              |
 | --join-token     | abc123.xyz789def456                             | Derive from the master node, run `kubeadm token create --print-join-command` if you didn't save it from the previous installation |
 | --join-hash      | sha256:fedcba0987654321fedcba0987654321fedcba09 | Derive from the master node, run `kubeadm token create --print-join-command` if you didn't save it from the previous installation |
-| --hugepage-size  | 2M                                              | Define Hugepage Size, 2M or 1G                               |
+| --hugepage-size  | 2M                                              | Define Hugepage Size, `2M` or `1G`                           |
 | --hugepage-count | 1024                                            | Define how many hugepages (Allocate this based on your memory) |
 | --runtime        | crio                                            | Pick container engine for the cluster for now support containerd or crio |
 | --disable-rt     | N/A                                             | Skip RT kernel mode setup                                    |
@@ -277,162 +282,13 @@ Write your installation/integration plan & status in here:
 
 ### Human Provisioned Sequence
 
-```plantuml
-@startuml
-!theme plain
-skinparam sequenceMessageAlign center
-
-actor User
-participant "<font color=white>Master Node\n(RHEL 9.4)" as MasterNode #8bc34a
-participant "<font color=white>Worker Node\n(RT Kernel)" as WorkerNode #8bc34a
-
-note over User : Manual OAI Setup
-
-User -> MasterNode : ./script/provision/master_setup.sh
-activate MasterNode
-MasterNode -> MasterNode : Setup K8s master
-create "<font color=white>Kubernetes Cluster" as K8sCluster #2196f3
-MasterNode -> K8sCluster : Initialize cluster
-activate K8sCluster
-MasterNode --> User : Ready + join token
-deactivate MasterNode
-
-User -> WorkerNode : ./script/provision/worker_setup.sh
-activate WorkerNode
-WorkerNode -> WorkerNode : Install RT kernel + SR-IOV
-WorkerNode -> WorkerNode : /root/join-cluster.sh
-WorkerNode -> K8sCluster : Join cluster
-WorkerNode --> User : Joined successfully
-WorkerNode --> User : Reboot required
-deactivate WorkerNode
-
-note over User : Reboot worker
-
-User -> K8sCluster : Deploy OAI manifests
-K8sCluster -> K8sCluster : Deploy GNB monolithic
-create "<font color=white>OAI GNB/DU" as OAI #e91e63
-K8sCluster -> OAI : Instantiate GNB pods
-activate OAI
-OAI --> K8sCluster : GNB running on worker
-K8sCluster --> User : OAI GNB ready
-deactivate K8sCluster
-
-participant "O-RU Node\n(Preconfigured)" as ORU
-User -> ORU : Configure O-RU connection
-activate ORU
-ORU -> ORU : Load predefined config
-ORU -> OAI : Establish fronthaul connection
-OAI --> ORU : Connection established
-ORU --> User : O-RU connected to GNB
-deactivate ORU
-deactivate OAI
-
-note over User, ORU : OAI System Ready\nGNB ↔ O-RU
-
-@enduml
-```
 
 
+![](assets/manual_setup.png)
 
 ### CICD Pipeline Setup
 
-```plantuml
-@startuml
-!theme plain
-skinparam sequenceMessageAlign center
-
-' Text color for dark backgrounds
-skinparam participant {
-    FontColor white
-}
-
-actor Developer
-participant "<font color=white>Git Repository" as Git #111111
-participant Jenkins #34a9b6
-participant "<font color=white>Container Registry" as Registry #ff9800
-participant Ansible #34a9b6
-participant "NFO Module" as NFO #34a9b6
-
-note over Developer : O-RAN GNB Deployment Pipeline
-
-Developer -> Git : Commit GNB source changes
-activate Git
-Git -> Jenkins : Webhook trigger
-activate Jenkins
-Jenkins -> Git : Pull latest code
-Git --> Jenkins : GNB source & manifests
-deactivate Git
-
-alt Request for Infra?
-    Jenkins -> Ansible : Provision infrastructure
-    activate Ansible
-    
-    create "Master Node" as MasterNode #8bc34a
-    Ansible -> MasterNode : Deploy master_setup.sh
-    activate MasterNode
-    create "Kubernetes Cluster" as K8sCluster #2196f3
-    MasterNode -> K8sCluster : Initialize cluster
-    activate K8sCluster
-    MasterNode --> Ansible : Ready
-    deactivate MasterNode
-    
-    create "Worker Node" as WorkerNode #8bc34a
-    Ansible -> WorkerNode : Deploy worker_setup.sh
-    activate WorkerNode
-    WorkerNode -> K8sCluster : Join cluster
-    WorkerNode --> Ansible : Joined
-    deactivate WorkerNode
-    
-    Ansible --> Jenkins : Infrastructure ready
-    deactivate Ansible
-end
-
-note over Jenkins : Build Process
-
-Jenkins -> Registry : Check current image tag
-activate Registry
-Registry --> Jenkins : Tag: v1.2.3
-Jenkins -> Jenkins : Compare with git commit
-alt New changes
-    Jenkins -> Jenkins : Build GNB image
-    Jenkins -> Registry : Push image v1.2.4
-    Registry --> Jenkins : Pushed
-else No changes
-    Jenkins -> Jenkins : Use existing image
-end
-deactivate Registry
-
-Jenkins -> NFO : Register cluster & deploy
-activate NFO
-NFO -> K8sCluster : Deploy GNB with latest image
-K8sCluster -> Registry : Pull latest image
-activate Registry
-Registry --> K8sCluster : Image pulled
-deactivate Registry
-create "<font color=white>OAI GNB" as GNB #fd1234
-K8sCluster -> GNB : Start GNB pods
-activate GNB
-
-participant "<font color=black>O-RU\n<font color=black>(Preconfigured)" as ORU
-
-GNB -> ORU : Connect fronthaul
-activate ORU
-ORU -> GNB : Connected
-deactivate ORU
-
-GNB --> NFO : Operational
-deactivate GNB
-NFO --> Jenkins : Success
-deactivate NFO
-deactivate K8sCluster
-
-Jenkins --> Developer : Pipeline complete
-deactivate Jenkins
-
-note over Developer, ORU : GNB ↔ O-RU Active
-
-@enduml
-```
+![](assets/cicd_setup.png)
 
 
 
@@ -479,7 +335,7 @@ Follow these steps to verify your installation was successful:
 
    ```bash
    # Find process using the port
-   sudo lsof -i :3000
+   sudo lsof -i :3000-
    # Kill the process (replace PID with actual process ID)
    kill -9 <PID>
    ```
