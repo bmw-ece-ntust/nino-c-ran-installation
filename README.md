@@ -6,11 +6,11 @@
 
 **Project Name:** OAI FH 7.2 on Vanilla Kubernetes
 
-**Description:** Something something
+**Description:** Automated Deployment and Management of GNB Software on Cloud Environment
 
 **Key Features:**
 
-- Automated Deployment and Management of GNB Software on Cloud Environment
+- C-RAN Integration with O-Ru
 
 **Target Users:** [Developers/Researchers/System Administrators/etc.]
 
@@ -47,17 +47,20 @@ Write your installation/integration plan & status in here:
 | ---------------------------- | ------------------------------------------------------------ | -------------------------------------------------- | ------ |
 | Check Server Support for SRIOV and NUMA | Human Intervention                                    | Google this up., based on your machine.                      | :white_check_mark: |
 | Configure BIOS for SRIOV and NUMA       | Human Intervention                                    | Google this up., based on your machine.                      | :white_check_mark: |
-| Install OS for Kubernetes Master Node   | Install RHEL 9                                        |                                                              | :white_check_mark: |
-| Install OS for Kubernetes Worker Node   | Install RHEL 9                                        |                                                              | :white_check_mark: |
+| Install OS for Kubernetes Master Node   | Human Intervention                      | Install RHEL 9.4 | :white_check_mark: |
+| Install OS for Kubernetes Worker Node   | Human Intervention                      | Install RHEL 9.4 | :white_check_mark: |
 | Setup Master Node                       | run script `provision/master_setup.sh` on master Node | Turn this node into master node and install necessary components for O-Cloud Operation | :white_check_mark: |
 | Setup Worker Node for RT Workload       | run script `provision/worker_setup.sh` on worker Node | Turn this node into worker node and adjust the kernel into RT | :white_check_mark: |
 | Build and Publish OAI 7.2 Image         | run script `deployment/build_image.sh`                | You can run this from any machine with internet connection   | :white_check_mark: |
 | Deploy OAI 7.2 Chart                    | run script `deployment/deploy_test.sh`                | Deploy Chart of OAI GNB                                      | :white_check_mark: |
-|                                         |                                                       |                                                              |                    |
-
+| Integrate OAI with O-RU                                       | Human Intervention                                                       | Update the configmap parameters based on the connected O-RU                                                               | :white_check_mark:                    |
+| Integrate OAI with Core Network | Human Intervention | Update the values.yaml based on the network plan (PLMN, N2 & N3 Connection) | :white_check_mark: |
+| End-to-end integration with COTS UE | Humen Intervention |  |  |
 
 
 ## System Architecture
+
+![](/home/infidel/Sync/NTUST/BMW-Lab/LabNotes/template/assets/sys-architecture.svg)
 
 **Important Components to Include in System Architecture (O-RAN O-DU Architecture Pattern):**
 
@@ -69,22 +72,13 @@ Write your installation/integration plan & status in here:
 2. **Worker Node**
    1. RT Kernel
    2. SRIOV Enabled
-   3. 
+   3. `
 
 
-
-
-## Repository Structure
-
-> [!NOTE]
->
-> 1. 
-
-```
-tree command
-```
 
 ## Minimum Specification Requirements
+
+### Master Node
 
 | Component        | Requirement                            |
 | ---------------- | -------------------------------------- |
@@ -93,45 +87,352 @@ tree command
 | Memory           | 16 GB RAM                              |
 | Kubernetes       | 1.28 or higher                         |
 | CRI-O            | 1.28 or higher                         |
+
+
+
+### Worker Node
+
+| Component        | Requirement                            |
+| ---------------- | -------------------------------------- |
+| Operating System | Red Hat Enterprise Linux 9.0 or Higher |
+| CPU              | 2 GHz, 8-core                          |
+| Memory           | 32 GB RAM                              |
+| Kubernetes       | 1.28 or higher                         |
+| CRI-O            | 1.28 or higher                         |
 | HW Motherboard   | Support NUMA                           |
 | HW NIC           | Support SRIOV                          |
 
 
 
+## Installation Process
+
+### Repository Structure
+
+```
+.
+├── docs
+│   └── USER-GUIDE.md
+├── LICENSE
+├── README.md
+├── scripts
+│   ├── deployment
+│   └── provision
+│       ├── master_setup.sh
+│       └── worker_setup.sh
+└── src
+```
+
+
+
+### Master Node Setup
+
+1. SSH into RHEL System
+
+2. Git Clone this Repo and Check the script
+
+   ```bash
+   git clone https://github.com/bmw-ece-ntust/nino-c-ran-installation.git
+   cd nino-c-ran-installation/
+   ./scripts/provision/master_setup.sh --help
+   ```
+
+3. Provision the system using the `master_setup.sh`
+
+   ```
+   ./scripts/provision/k8s-setup.sh \
+     --runtime crio
+     --api-address 192.168.8.XXX \
+     --pod-network 10.42.0.0/16 \
+     --service-network 10.43.0.0/16 \
+     --multi-node
+   ```
+
+4. Script details
+
+   ```
+   Usage: scripts/provision/master_setup.sh [OPTIONS]
+   Options:
+     --api-address IP       API server advertise address (default: auto-detect)
+     --pod-network CIDR     Pod network CIDR (default: 10.244.0.0/16)
+     --service-network CIDR Service network CIDR (default: 10.96.0.0/12)
+     --runtime crio|containerd Container runtime (default: crio)
+     --multi-node          Setup multi-node cluster (keeps taints)
+     --rollback            Remove all Kubernetes components
+     --help                Show this help
+   
+   Examples:
+     scripts/provision/master_setup.sh --api-address 192.168.1.100
+     scripts/provision/master_setup.sh --runtime containerd --multi-node
+     scripts/provision/master_setup.sh --rollback
+   ```
+
+   
+
+### Worker Node Setup
+
+1. Make sure SRIOV and CPU virtualization is already enabled from BIOS/BMC
+
+2. SSH into machine
+
+3. Git clone this repo to the worker node
+
+4. Setup the machine as a worker node, you need to have the join-token and join-hash from master node before hand
+
+   1. Run the following command on master node to get the join-token and join-hash
+
+      ```bash
+      kubeadm token create --print-join-command
+      # Example output
+      # kubeadm join 192.168.8.114:6443 --token cl76in.xyfjn0w1vyhub1pa --discovery-token-ca-cert-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0 
+      ```
+
+   2. Enable RT kernel package on the RedHat subscription-manager
+
+      ```
+      sudo subscription-manager repos --enable rhel-9-for-x86_64-rt-rpms
+      ```
+
+      
+
+   3. Run the worker_setup.sh script to provision your system 
+
+      ```
+      # Example based on my current setup
+      ./script/provision/worker_setup.sh \
+        --master-ip 192.168.8.114 \
+        --join-token cl76in.xyfjn0w1vyhub1pa \
+        --join-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0 
+        
+      ```
+
+5. Script Full functions
+
+   ```
+   Usage: ./scripts/provision/worker_setup.sh [OPTIONS]
+   Options:
+     --master-ip IP         Kubernetes master node IP (required for join)
+     --join-token TOKEN     Kubernetes join token (required for join)
+     --join-hash HASH       CA cert hash (required for join)
+     --hugepage-size SIZE   Hugepage size: 2M or 1G (default: 1G)
+     --hugepage-count NUM   Number of hugepages (default: 8)
+     --runtime crio|containerd Container runtime (default: crio)
+     --disable-rt           Skip RT kernel installation
+     --disable-sriov        Skip SR-IOV configuration
+     --disable-vfio         Skip VFIO configuration
+     --rollback             Remove Kubernetes worker components only
+     --rollback-rt          Full rollback including RT kernel
+     --help                 Show this help
+   
+   Examples:
+     ./scripts/provision/worker_setup.sh --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456...
+     ./scripts/provision/worker_setup.sh --hugepage-size 2M --hugepage-count 1024 --disable-rt
+     ./scripts/provision/worker_setup.sh --rollback-rt
+   
+   To get join parameters from master, run on master:
+     kubeadm token create --print-join-command
+   
+   ```
+
+   
+
+## 
+
 ## Table of Paramaters
 
-> [!NOTE]
-> **Parameter Comparison Guidelines:**
->
-> 1. 
+
 
 ### Inputs Parameters
 
-| Parameter Name                  | Description                                    | ...                                                                    | ...                                                       |
-| ------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-|                |             |      |      |
-|                |             |      |      |
-|                |             |      |      |
-|                |             |      |      |
-|                |             |      |      |
-|                |             |      |      |
+### `master_setup.sh`
 
-Output Parameters
+| Parameter Name                  | Example Value                   | Description                                                         |
+| ------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `--multi-node` | N/A | Enable Multi Node Cluster setup mode, keep master taints. Without this flag the cluster will allow deployment of non kube-system on the master node. |
+| `--runtime` | `crio` | Pick container engine for the cluster for now support containerd or crio |
+| `--pod-network` | `10.8.0.0/16` | Define the subnet for Pods across cluster, make sure your environment are not using this subnet otherwise there might be conflicts when you want to connect the Pods to your network. |
+| `--service-network` | `10.32.0.0/12` | Define the subnet for Services across cluster, make sure your environment are not using this subnet otherwise there might be conflicts when you want to connect the Pods to your network. |
+| `--api-address` | `192.168.8.100/24` | Endpoint of the kubernetes API (:6443) this should be accessible by the other nodes of this cluster in order for them to join the cluster. Pick the IP on the interface where its reachable by your nodes. |
+| `--rollback` | N/A | This flag will remove all of the kubernetes related changes on your system and turn it into generic Linux System. |
 
-| Paremeters |      |      |
-| ---------- | ---- | ---- |
-|            |      |      |
-|            |      |      |
-|            |      |      |
+
+
+### `worker_setup.sh`
+
+| Parameter Name   | Example Value                                   | Description                                                  |
+| ---------------- | ----------------------------------------------- | ------------------------------------------------------------ |
+| --master-ip      | 192.168.8.100                                   |                                                              |
+| --join-token     | abc123.xyz789def456                             | Derive from the master node, run `kubeadm token create --print-join-command` if you didn't save it from the previous installation |
+| --join-hash      | sha256:fedcba0987654321fedcba0987654321fedcba09 | Derive from the master node, run `kubeadm token create --print-join-command` if you didn't save it from the previous installation |
+| --hugepage-size  | 2M                                              | Define Hugepage Size, 2M or 1G                               |
+| --hugepage-count | 1024                                            | Define how many hugepages (Allocate this based on your memory) |
+| --runtime        | crio                                            | Pick container engine for the cluster for now support containerd or crio |
+| --disable-rt     | N/A                                             | Skip RT kernel mode setup                                    |
+| --disable-sriov  | N/A                                             | Skip SRIOV setup                                             |
+| --rollback       | N/A                                             | Remove all kubernetes related changes on system              |
+| --rollback-rt    | N/A                                             | Remove all RT related changes on system                      |
 
 
 
 ## Message Sequence Chart (MSC)
 
-> [!NOTE]
-> ...
+### Human Provisioned Sequence
+
+```plantuml
+@startuml
+!theme plain
+skinparam sequenceMessageAlign center
+
+actor User
+participant "<font color=white>Master Node\n(RHEL 9.4)" as MasterNode #8bc34a
+participant "<font color=white>Worker Node\n(RT Kernel)" as WorkerNode #8bc34a
+
+note over User : Manual OAI Setup
+
+User -> MasterNode : ./script/provision/master_setup.sh
+activate MasterNode
+MasterNode -> MasterNode : Setup K8s master
+create "<font color=white>Kubernetes Cluster" as K8sCluster #2196f3
+MasterNode -> K8sCluster : Initialize cluster
+activate K8sCluster
+MasterNode --> User : Ready + join token
+deactivate MasterNode
+
+User -> WorkerNode : ./script/provision/worker_setup.sh
+activate WorkerNode
+WorkerNode -> WorkerNode : Install RT kernel + SR-IOV
+WorkerNode -> WorkerNode : /root/join-cluster.sh
+WorkerNode -> K8sCluster : Join cluster
+WorkerNode --> User : Joined successfully
+WorkerNode --> User : Reboot required
+deactivate WorkerNode
+
+note over User : Reboot worker
+
+User -> K8sCluster : Deploy OAI manifests
+K8sCluster -> K8sCluster : Deploy GNB monolithic
+create "<font color=white>OAI GNB/DU" as OAI #e91e63
+K8sCluster -> OAI : Instantiate GNB pods
+activate OAI
+OAI --> K8sCluster : GNB running on worker
+K8sCluster --> User : OAI GNB ready
+deactivate K8sCluster
+
+participant "O-RU Node\n(Preconfigured)" as ORU
+User -> ORU : Configure O-RU connection
+activate ORU
+ORU -> ORU : Load predefined config
+ORU -> OAI : Establish fronthaul connection
+OAI --> ORU : Connection established
+ORU --> User : O-RU connected to GNB
+deactivate ORU
+deactivate OAI
+
+note over User, ORU : OAI System Ready\nGNB ↔ O-RU
+
+@enduml
+```
 
 
+
+### CICD Pipeline Setup
+
+```plantuml
+@startuml
+!theme plain
+skinparam sequenceMessageAlign center
+
+' Text color for dark backgrounds
+skinparam participant {
+    FontColor white
+}
+
+actor Developer
+participant "<font color=white>Git Repository" as Git #111111
+participant Jenkins #34a9b6
+participant "<font color=white>Container Registry" as Registry #ff9800
+participant Ansible #34a9b6
+participant "NFO Module" as NFO #34a9b6
+
+note over Developer : O-RAN GNB Deployment Pipeline
+
+Developer -> Git : Commit GNB source changes
+activate Git
+Git -> Jenkins : Webhook trigger
+activate Jenkins
+Jenkins -> Git : Pull latest code
+Git --> Jenkins : GNB source & manifests
+deactivate Git
+
+alt Request for Infra?
+    Jenkins -> Ansible : Provision infrastructure
+    activate Ansible
+    
+    create "Master Node" as MasterNode #8bc34a
+    Ansible -> MasterNode : Deploy master_setup.sh
+    activate MasterNode
+    create "Kubernetes Cluster" as K8sCluster #2196f3
+    MasterNode -> K8sCluster : Initialize cluster
+    activate K8sCluster
+    MasterNode --> Ansible : Ready
+    deactivate MasterNode
+    
+    create "Worker Node" as WorkerNode #8bc34a
+    Ansible -> WorkerNode : Deploy worker_setup.sh
+    activate WorkerNode
+    WorkerNode -> K8sCluster : Join cluster
+    WorkerNode --> Ansible : Joined
+    deactivate WorkerNode
+    
+    Ansible --> Jenkins : Infrastructure ready
+    deactivate Ansible
+end
+
+note over Jenkins : Build Process
+
+Jenkins -> Registry : Check current image tag
+activate Registry
+Registry --> Jenkins : Tag: v1.2.3
+Jenkins -> Jenkins : Compare with git commit
+alt New changes
+    Jenkins -> Jenkins : Build GNB image
+    Jenkins -> Registry : Push image v1.2.4
+    Registry --> Jenkins : Pushed
+else No changes
+    Jenkins -> Jenkins : Use existing image
+end
+deactivate Registry
+
+Jenkins -> NFO : Register cluster & deploy
+activate NFO
+NFO -> K8sCluster : Deploy GNB with latest image
+K8sCluster -> Registry : Pull latest image
+activate Registry
+Registry --> K8sCluster : Image pulled
+deactivate Registry
+create "<font color=white>OAI GNB" as GNB #fd1234
+K8sCluster -> GNB : Start GNB pods
+activate GNB
+
+participant "<font color=black>O-RU\n<font color=black>(Preconfigured)" as ORU
+
+GNB -> ORU : Connect fronthaul
+activate ORU
+ORU -> GNB : Connected
+deactivate ORU
+
+GNB --> NFO : Operational
+deactivate GNB
+NFO --> Jenkins : Success
+deactivate NFO
+deactivate K8sCluster
+
+Jenkins --> Developer : Pipeline complete
+deactivate Jenkins
+
+note over Developer, ORU : GNB ↔ O-RU Active
+
+@enduml
+```
 
 
 
