@@ -1,598 +1,811 @@
 #!/bin/bash
+set -euo pipefail
 
-set -e
+# Configuration variables
+MASTER_IP="${MASTER_IP:-}"
+JOIN_TOKEN="${JOIN_TOKEN:-}"
+JOIN_HASH="${JOIN_HASH:-}"
+HUGEPAGE_SIZE="${HUGEPAGE_SIZE:-1G}"
+HUGEPAGE_COUNT="${HUGEPAGE_COUNT:-8}"
+HUGEPAGE_2M_COUNT="${HUGEPAGE_2M_COUNT:-0}"  # Additional 2M hugepages
+HOUSEKEEPING_CPUS="${HOUSEKEEPING_CPUS:-5}"  # First N CPUs for K8s
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-crio}"
+ENABLE_RT="${ENABLE_RT:-true}"
+ENABLE_VFIO="${ENABLE_VFIO:-true}"
+AUTO_REBOOT="${AUTO_REBOOT:-false}"
+ROLLBACK="${ROLLBACK:-false}"
 
-# Default values
-MASTER_IP=""
-JOIN_TOKEN=""
-JOIN_HASH=""
-HUGEPAGE_SIZE="1G"
-HUGEPAGE_COUNT="8"
-RT_KERNEL="true"
-SRIOV_ENABLE="true"
-VFIO_ENABLE="true"
-RUNTIME="crio"
-ROLLBACK="false"
-ROLLBACK_RT="false"
+# Red Hat registration
+RH_ORG_ID="${RH_ORG_ID:-}"
+RH_ACTIVATION_KEY="${RH_ACTIVATION_KEY:-}"
+
+# Version configuration
+CRIO_VERSION="${CRIO_VERSION:-1.28}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.28}"
+
+readonly SCRIPT_NAME=$(basename "$0")
+readonly LOG_FILE="/var/log/${SCRIPT_NAME%.*}.log"
 
 # Usage function
 usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "Options:"
-    echo "  --master-ip IP         Kubernetes master node IP (required for join)"
-    echo "  --join-token TOKEN     Kubernetes join token (required for join)"
-    echo "  --join-hash HASH       CA cert hash (required for join)"
-    echo "  --hugepage-size SIZE   Hugepage size: 2M or 1G (default: $HUGEPAGE_SIZE)"
-    echo "  --hugepage-count NUM   Number of hugepages (default: $HUGEPAGE_COUNT)"
-    echo "  --runtime crio|containerd Container runtime (default: $RUNTIME)"
-    echo "  --disable-rt           Skip RT kernel installation"
-    echo "  --disable-sriov        Skip SR-IOV configuration"
-    echo "  --disable-vfio         Skip VFIO configuration"
-    echo "  --rollback             Remove Kubernetes worker components only"
-    echo "  --rollback-rt          Full rollback including RT kernel"
-    echo "  --help                 Show this help"
-    echo ""
-    echo "Examples:"
-    echo "  $0 --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456..."
-    echo "  $0 --hugepage-size 2M --hugepage-count 1024 --disable-rt"
-    echo "  $0 --rollback-rt"
-    echo ""
-    echo "To get join parameters from master, run on master:"
-    echo "  kubeadm token create --print-join-command"
-    exit 1
-}
+    cat << EOF
+Usage: $0 [OPTIONS]
 
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --master-ip)
-            MASTER_IP="$2"
-            shift 2
-            ;;
-        --join-token)
-            JOIN_TOKEN="$2"
-            shift 2
-            ;;
-        --join-hash)
-            JOIN_HASH="$2"
-            shift 2
-            ;;
-        --hugepage-size)
-            HUGEPAGE_SIZE="$2"
-            shift 2
-            ;;
-        --hugepage-count)
-            HUGEPAGE_COUNT="$2"
-            shift 2
-            ;;
-        --runtime)
-            RUNTIME="$2"
-            shift 2
-            ;;
-        --disable-rt)
-            RT_KERNEL="false"
-            shift
-            ;;
-        --disable-sriov)
-            SRIOV_ENABLE="false"
-            shift
-            ;;
-        --disable-vfio)
-            VFIO_ENABLE="false"
-            shift
-            ;;
-        --rollback)
-            ROLLBACK="true"
-            shift
-            ;;
-        --rollback-rt)
-            ROLLBACK_RT="true"
-            shift
-            ;;
-        --help)
-            usage
-            ;;
-        *)
-            echo "Unknown option: $1"
-            usage
-            ;;
-    esac
-done
+OAI gNodeB RT Worker Node Setup for RHEL 9.5
+Setup → Join Cluster → Reboot to Activate RT Kernel
 
-# System checker function
-check_system_state() {
-    echo "Checking system state..."
-    local issues=0
-    
-    # Check for existing Kubernetes
-    if command -v kubelet >/dev/null 2>&1; then
-        echo "WARNING: kubelet already installed"
-        ((issues++))
-    fi
-    
-    # Check for RT kernel
-    if uname -r | grep -q rt; then
-        echo "INFO: RT kernel already running: $(uname -r)"
-    fi
-    
-    # Check for existing container runtime
-    if systemctl is-active --quiet crio 2>/dev/null; then
-        echo "WARNING: CRI-O is running"
-        ((issues++))
-    fi
-    
-    if systemctl is-active --quiet containerd 2>/dev/null; then
-        echo "WARNING: containerd is running"
-        ((issues++))
-    fi
-    
-    # Check hugepages
-    if [ -d /sys/kernel/mm/hugepages ]; then
-        echo "INFO: Hugepages support detected"
-        for hp in /sys/kernel/mm/hugepages/hugepages-*; do
-            if [ -d "$hp" ]; then
-                size=$(basename "$hp" | sed 's/hugepages-//' | sed 's/kB//')
-                nr=$(cat "$hp/nr_hugepages" 2>/dev/null || echo "0")
-                echo "  - $(($size/1024))MB hugepages: $nr allocated"
-            fi
-        done
-    fi
-    
-    # Check SR-IOV capability
-    if lspci | grep -i "virtual function" >/dev/null 2>&1; then
-        echo "INFO: SR-IOV VFs detected"
-        lspci | grep -i "virtual function" | wc -l | xargs echo "  - VF count:"
-    fi
-    
-    if [ $issues -gt 0 ]; then
-        echo "System has existing components ($issues issues detected)"
-        read -p "Continue anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    else
-        echo "System ready for configuration"
-    fi
-}
+Options:
+    --master-ip IP              Kubernetes master IP
+    --join-token TOKEN          Kubernetes join token  
+    --join-hash HASH           CA cert hash
+    --hugepage-size SIZE       Primary hugepage size: 2M or 1G (default: 1G)
+    --hugepage-count NUM       Number of primary hugepages (default: 8)
+    --hugepage-2m-count NUM    Additional 2M hugepages (default: 0)
+    --housekeeping-cpus NUM    CPUs reserved for K8s (default: 5)
+    --runtime RUNTIME          Container runtime: crio|containerd (default: crio)
+    --crio-version VER         CRI-O version (default: 1.28)
+    --k8s-version VER          Kubernetes version (default: v1.28)
+    --rh-org-id ID             Red Hat organization ID
+    --rh-activation-key KEY    Red Hat activation key
+    --auto-reboot              Reboot automatically after setup
+    --disable-rt               Skip RT kernel installation
+    --disable-vfio             Skip VFIO configuration
+    --rollback                 Rollback configuration to standard setup
+    --help                     Show this help
 
-# Full rollback function
-perform_full_rollback() {
-    echo "Performing full rollback including RT kernel..."
+Examples:
+    # Basic RT setup with Red Hat registration
+    $0 --rh-org-id 12345 --rh-activation-key mykey123
     
-    # Remove Kubernetes components
-    perform_k8s_rollback
+    # Full automated worker setup  
+    $0 --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456... \\
+       --rh-org-id 12345 --rh-activation-key mykey123 --auto-reboot
     
-    # Remove RT kernel packages
-    dnf remove -y kernel-rt kernel-rt-core kernel-rt-modules 2>/dev/null || true
-    
-    # Reset GRUB to default kernel
-    if [ -f /etc/default/grub.bak ]; then
-        mv /etc/default/grub.bak /etc/default/grub
-        grub2-mkconfig -o /boot/grub2/grub.cfg
-    fi
-    
-    # Remove hugepages configuration
-    if [ -f /etc/systemd/system/hugepages.service ]; then
-        systemctl stop hugepages.service 2>/dev/null || true
-        systemctl disable hugepages.service 2>/dev/null || true
-        rm -f /etc/systemd/system/hugepages.service
-    fi
-    
-    # Reset SR-IOV
-    reset_sriov_config
-    
-    # Remove VFIO modules
-    if [ -f /etc/modprobe.d/vfio.conf ]; then
-        rm -f /etc/modprobe.d/vfio.conf
-        rm -f /etc/modules-load.d/vfio.conf
-    fi
-    
-    # Reset kernel parameters
-    if [ -f /etc/sysctl.d/99-rt-worker.conf ]; then
-        rm -f /etc/sysctl.d/99-rt-worker.conf
-    fi
-    
-    echo "Full rollback complete. Reboot required to use standard kernel."
+    # Advanced hugepages configuration
+    $0 --hugepage-size 1G --hugepage-count 32 --hugepage-2m-count 1024 \\
+       --housekeeping-cpus 8 --master-ip 192.168.1.100 --join-token ... --join-hash ...
+       
+    # Rollback to standard configuration
+    $0 --rollback
+
+Note: Enhanced RT kernel parameters for maximum performance
+      SR-IOV device configuration handled by Multus SR-IOV CNI
+EOF
     exit 0
 }
 
-# Kubernetes worker rollback
-perform_k8s_rollback() {
-    echo "Rolling back Kubernetes worker components..."
+# Add this function after perform_rollback()
+perform_cluster_rollback() {
+    log "INFO" "Removing worker node from cluster"
+
+    local node_name=$(hostname)
+
+    kubectl drain "$node_name" --ignore-daemonsets --delete-emptydir-data
+
+    # Try to remove node from cluster if kubectl is available
+    if [[ -f /etc/kubernetes/kubelet.conf ]]; then
+        export KUBECONFIG=/etc/kubernetes/kubelet.conf
+        kubectl delete node "$node_name" --ignore-not-found=true 2>/dev/null || true
+    fi
+
+    # Stop services
+    systemctl stop kubelet crio containerd 2>/dev/null || true
+
+    # Reset kubeadm configuration
+    kubeadm reset --force 2>/dev/null || true
+
+    # Clean iptables rules
+    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X 2>/dev/null || true
+
+    # Remove remaining configs
+    rm -rf /etc/kubernetes /var/lib/kubelet /var/lib/crio /var/lib/containerd
+    rm -rf /etc/cni /var/lib/cni /run/flannel /etc/crio /etc/containerd
+
+    # Reset network
+    ip link delete cni0 2>/dev/null || true
+    ip link delete flannel.1 2>/dev/null || true
+
+    log "INFO" "Node removed from cluster"
+}
+
+# Parse arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --master-ip) MASTER_IP="$2"; shift 2 ;;
+            --join-token) JOIN_TOKEN="$2"; shift 2 ;;
+            --join-hash) JOIN_HASH="$2"; shift 2 ;;
+            --hugepage-size) HUGEPAGE_SIZE="$2"; shift 2 ;;
+            --hugepage-count) HUGEPAGE_COUNT="$2"; shift 2 ;;
+            --hugepage-2m-count) HUGEPAGE_2M_COUNT="$2"; shift 2 ;;
+            --housekeeping-cpus) HOUSEKEEPING_CPUS="$2"; shift 2 ;;
+            --runtime) CONTAINER_RUNTIME="$2"; shift 2 ;;
+            --crio-version) CRIO_VERSION="$2"; shift 2 ;;
+            --k8s-version) KUBERNETES_VERSION="$2"; shift 2 ;;
+            --rh-org-id) RH_ORG_ID="$2"; shift 2 ;;
+            --rh-activation-key) RH_ACTIVATION_KEY="$2"; shift 2 ;;
+            --auto-reboot) AUTO_REBOOT="true"; shift ;;
+            --disable-rt) ENABLE_RT="false"; shift ;;
+            --disable-vfio) ENABLE_VFIO="false"; shift ;;
+            --rollback) ROLLBACK="true"; shift ;;
+	   --rollback-cluster) ROLLBACK_CLUSTER="true"; shift ;;
+            --help) usage ;;
+            *) echo "Unknown option: $1"; usage ;;
+        esac
+    done
+}
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$1] $2" | tee -a "$LOG_FILE"
+}
+
+die() {
+    log "ERROR" "$1"
+    exit 1
+}
+
+# Calculate isolated CPUs (all CPUs except first N housekeeping)
+calculate_isolated_cpus() {
+    local total_cpus
+    total_cpus=$(nproc)
+    
+    if [[ $total_cpus -le $HOUSEKEEPING_CPUS ]]; then
+        die "Not enough CPUs: need >$HOUSEKEEPING_CPUS, found $total_cpus"
+    fi
+    
+    local isolated_start=$HOUSEKEEPING_CPUS
+    local isolated_end=$((total_cpus - 1))
+    
+    echo "${isolated_start}-${isolated_end}"
+}
+
+# Calculate housekeeping CPUs list
+calculate_housekeeping_cpus() {
+    echo "0-$((HOUSEKEEPING_CPUS-1))"
+}
+
+# Rollback function
+perform_rollback() {
+    log "INFO" "Starting system rollback to standard configuration"
+    
+    echo "========================================="
+    echo "SYSTEM ROLLBACK - Removing RT Configuration"
+    echo "========================================="
+
+    # Reset
+    kubeadm reset --force
     
     # Stop services
+    log "INFO" "Stopping services"
     systemctl stop kubelet 2>/dev/null || true
     systemctl disable kubelet 2>/dev/null || true
-    systemctl stop crio 2>/dev/null || true
-    systemctl disable crio 2>/dev/null || true
-    systemctl stop containerd 2>/dev/null || true
-    systemctl disable containerd 2>/dev/null || true
+    systemctl stop crio containerd 2>/dev/null || true
+    systemctl disable crio containerd 2>/dev/null || true
     
-    # Remove packages
-    dnf remove -y kubelet kubeadm kubectl cri-o cri-tools containerd.io 2>/dev/null || true
+    # Reset tuned profile to default
+    log "INFO" "Resetting tuned profile"
+    if command -v tuned-adm &>/dev/null; then
+        tuned-adm profile throughput-performance 2>/dev/null || tuned-adm off
+    fi
     
-    # Clean configuration
-    rm -rf /etc/kubernetes
-    rm -rf /var/lib/kubelet
-    rm -rf /var/lib/crio
-    rm -rf /var/lib/containerd
-    rm -rf /etc/crio
-    rm -rf /etc/containerd
-    rm -rf /etc/cni
-    rm -rf /var/lib/cni
-    rm -f /etc/yum.repos.d/kubernetes.repo
-    rm -f /etc/yum.repos.d/devel:kubic:libcontainers:stable*.repo
+    # Remove custom tuned profiles
+    rm -rf /etc/tuned/oai-realtime /etc/tuned/realtime-variables.conf 2>/dev/null || true
+    
+    # Remove RT kernel packages
+    log "INFO" "Removing RT kernel packages"
+    dnf remove -y kernel-rt kernel-rt-core kernel-rt-modules tuned-profiles-realtime 2>/dev/null || true
+    
+    # Remove Kubernetes and container runtime
+    log "INFO" "Removing Kubernetes and container runtime"
+    dnf remove -y kubelet kubeadm kubectl cri-o containerd.io 2>/dev/null || true
+    
+    # Clean configuration files
+    log "INFO" "Cleaning configuration files"
+    rm -rf /etc/kubernetes /var/lib/kubelet /var/lib/crio /var/lib/containerd
+    rm -rf /etc/crio /etc/containerd /etc/cni /var/lib/cni
+    rm -f /etc/yum.repos.d/kubernetes.repo /etc/yum.repos.d/cri-o.repo
     rm -f /etc/yum.repos.d/docker-ce.repo
+    rm -f /etc/sysconfig/kubelet
     
-    # Clean network settings
-    rm -f /etc/sysctl.d/k8s.conf
-    rm -f /etc/modules-load.d/k8s.conf
+    # Clean network and system settings
+    rm -f /etc/sysctl.d/k8s.conf /etc/sysctl.d/99-oai-rt.conf
+    rm -f /etc/modules-load.d/k8s.conf /etc/modules-load.d/vfio.conf
+    rm -f /etc/modprobe.d/vfio.conf
+    rm -f /etc/security/limits.d/99-oai-rt.conf
     
-    if [ "$ROLLBACK" = "true" ]; then
-        echo "Kubernetes worker rollback complete."
-        exit 0
+    # Unmount and remove hugepages
+    umount /mnt/hugepages 2>/dev/null || true
+    rmdir /mnt/hugepages 2>/dev/null || true
+    sed -i '/hugetlbfs/d' /etc/fstab 2>/dev/null || true
+    
+    # Reset GRUB to remove RT parameters
+    log "INFO" "Resetting GRUB configuration"
+    if [[ -f /etc/default/grub.bak ]]; then
+        mv /etc/default/grub.bak /etc/default/grub
+        grub2-mkconfig -o /boot/grub2/grub.cfg
+    else
+        # Remove RT-specific kernel parameters from current GRUB config
+        sed -i 's/isolcpus=[^ ]* //g; s/nohz_full=[^ ]* //g; s/nohz=on //g; s/rcu_nocbs=[^ ]* //g' /etc/default/grub
+        sed -i 's/kthread_cpus=[^ ]* //g; s/irqaffinity=[^ ]* //g; s/rcu_nocb_poll //g' /etc/default/grub
+        sed -i 's/intel_pstate=disable //g; s/nosoftlockup //g; s/hugepagesz=[^ ]* //g; s/hugepages=[^ ]* //g' /etc/default/grub
+        sed -i 's/default_hugepagesz=[^ ]* //g; s/mitigations=off //g; s/processor\.max_cstate=[^ ]* //g' /etc/default/grub
+        sed -i 's/idle=poll //g; s/intel_idle\.max_cstate=[^ ]* //g; s/skew_tick=[^ ]* //g' /etc/default/grub
+        sed -i 's/tsc=nowatchdog //g; s/softlockup_panic=[^ ]* //g; s/audit=[^ ]* //g; s/mce=off //g' /etc/default/grub
+        sed -i 's/intel_iommu=on //g; s/iommu=pt //g; s/numa=off //g; s/vfio-pci\.enable_sriov=[^ ]* //g' /etc/default/grub
+        grub2-mkconfig -o /boot/grub2/grub.cfg
+    fi
+    
+    # Re-enable swap if it exists
+    if grep -q "swap" /etc/fstab; then
+        sed -i '/swap/s/^#//' /etc/fstab
+        swapon -a 2>/dev/null || true
+    fi
+    
+    # Re-enable SELinux
+    setenforce 1 2>/dev/null || true
+    sed -i 's/^SELINUX=permissive$/SELINUX=enforcing/' /etc/selinux/config
+    
+    # Re-enable firewalld
+    systemctl enable --now firewalld 2>/dev/null || true
+    
+    # Apply system defaults
+    sysctl --system
+    
+    log "INFO" "Rollback completed successfully"
+    echo ""
+    echo "========================================="
+    echo "Rollback Complete!"
+    echo "System restored to standard configuration."
+    echo "Reboot recommended to activate changes."
+    echo "========================================="
+    
+    exit 0
+}
+
+# Register with Red Hat
+register_system() {
+    if [[ -n "$RH_ORG_ID" && -n "$RH_ACTIVATION_KEY" ]]; then
+        log "INFO" "Registering system with Red Hat"
+        
+        subscription-manager register \
+            --org="$RH_ORG_ID" \
+            --activationkey="$RH_ACTIVATION_KEY" \
+            --force || die "Failed to register system"
+            
+        subscription-manager attach --auto || die "Failed to attach subscriptions"
+        log "INFO" "System registered successfully"
+    else
+        log "INFO" "Skipping Red Hat registration (no credentials provided)"
+        subscription-manager identity &>/dev/null || \
+            die "System not registered. Provide --rh-org-id and --rh-activation-key"
     fi
 }
 
-# SR-IOV configuration functions
-configure_sriov() {
-    if [ "$SRIOV_ENABLE" = "false" ]; then
-        echo "SR-IOV configuration skipped"
-        return
+# Validate prerequisites  
+validate_system() {
+    log "INFO" "Validating system prerequisites"
+    
+    [[ $EUID -eq 0 ]] || die "Must run as root"
+    [[ -f /etc/redhat-release ]] || die "Not a RHEL system"
+    
+    local rhel_version
+    rhel_version=$(grep -oE 'release [0-9]+\.[0-9]+' /etc/redhat-release | cut -d' ' -f2)
+    [[ "${rhel_version%%.*}" -eq 9 ]] || die "Requires RHEL 9.x (found: $rhel_version)"
+    
+    local total_cpus
+    total_cpus=$(nproc)
+    log "INFO" "System has $total_cpus CPUs, reserving first $HOUSEKEEPING_CPUS for K8s"
+    
+    if [[ -n "$MASTER_IP" ]]; then
+        [[ -n "$JOIN_TOKEN" && -n "$JOIN_HASH" ]] || \
+            die "JOIN_TOKEN and JOIN_HASH required with MASTER_IP"
+        ping -c1 "$MASTER_IP" &>/dev/null || die "Cannot reach master IP: $MASTER_IP"
     fi
     
-    echo "Configuring SR-IOV..."
+    # Validate hugepage sizes
+    case "$HUGEPAGE_SIZE" in
+        2M|1G) ;;
+        *) die "Invalid hugepage size: $HUGEPAGE_SIZE (use 2M or 1G)" ;;
+    esac
     
-    # Enable IOMMU in kernel parameters
-    GRUB_PARAMS="intel_iommu=on iommu=pt"
+    # Validate container runtime
+    case "$CONTAINER_RUNTIME" in
+        crio|containerd) ;;
+        *) die "Invalid container runtime: $CONTAINER_RUNTIME (use crio or containerd)" ;;
+    esac
     
-    # Find SR-IOV capable devices
-    echo "Detecting SR-IOV capable devices..."
-    for dev in /sys/class/net/*; do
-        if [ -f "$dev/device/sriov_totalvfs" ]; then
-            devname=$(basename "$dev")
-            totalvfs=$(cat "$dev/device/sriov_totalvfs")
-            if [ "$totalvfs" -gt 0 ]; then
-                echo "  - $devname: supports $totalvfs VFs"
-                
-                # Enable VFs (configure 4 VFs per PF as example)
-                vf_count=$((totalvfs > 4 ? 4 : totalvfs))
-                echo "$vf_count" > "$dev/device/sriov_numvfs" 2>/dev/null || true
-                echo "    Enabled $vf_count VFs"
-            fi
-        fi
-    done
-    
-    # Create SR-IOV persistence service
-    cat <<EOF > /etc/systemd/system/sriov-setup.service
-[Unit]
-Description=SR-IOV VF Setup
-After=network.target
+    log "INFO" "System validation passed"
+}
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/bash -c 'for dev in /sys/class/net/*/device/sriov_totalvfs; do [ -f "\$dev" ] && devpath=\$(dirname "\$dev") && totalvfs=\$(cat "\$dev") && [ "\$totalvfs" -gt 0 ] && echo \$((\$totalvfs > 4 ? 4 : \$totalvfs)) > "\$devpath/sriov_numvfs" 2>/dev/null || true; done'
-
-[Install]
-WantedBy=multi-user.target
+# Configure RT kernel and tuned profile with enhanced parameters
+setup_realtime() {
+    log "INFO" "Setting up RT kernel with enhanced performance parameters"
+    
+    local isolated_cpus housekeeping_cpus
+    isolated_cpus=$(calculate_isolated_cpus)
+    housekeeping_cpus=$(calculate_housekeeping_cpus)
+    
+    log "INFO" "CPU allocation - Housekeeping: $housekeeping_cpus, Isolated: $isolated_cpus"
+    
+    # Backup GRUB configuration
+    [[ ! -f /etc/default/grub.bak ]] && cp /etc/default/grub /etc/default/grub.bak
+    
+    # Enable RT repository
+    subscription-manager repos --enable="rhel-9-for-$(uname -m)-rt-rpms" || 
+        die "Failed to enable RT repository"
+    
+    # Install RT packages
+    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules tuned-profiles-realtime || 
+        die "Failed to install RT packages"
+    
+    # Configure realtime variables
+    cat > /etc/tuned/realtime-variables.conf << EOF
+# OAI gNodeB RT configuration with enhanced performance parameters
+# Housekeeping CPUs: $housekeeping_cpus (for Kubernetes)  
+# Isolated CPUs: $isolated_cpus (for RT containers)
+isolated_cores=$isolated_cpus
 EOF
     
-    systemctl enable sriov-setup.service
-}
+    # Create enhanced tuned profile with all performance parameters
+    mkdir -p /etc/tuned/oai-realtime
+    cat > /etc/tuned/oai-realtime/tuned.conf << EOF
+[main]
+summary=OAI gNodeB RT profile with maximum performance tuning
+include=realtime
 
-reset_sriov_config() {
-    echo "Resetting SR-IOV configuration..."
-    
-    # Disable all VFs
-    for dev in /sys/class/net/*/device/sriov_numvfs; do
-        if [ -f "$dev" ]; then
-            echo 0 > "$dev" 2>/dev/null || true
+[bootloader]  
+# Complete RT kernel command line with all performance optimizations
+cmdline_oai=+numa=off isolcpus=managed_irq,\${isolated_cores} nohz_full=\${isolated_cores} nohz=on rcu_nocbs=\${isolated_cores} kthread_cpus=$housekeeping_cpus irqaffinity=$housekeeping_cpus rcu_nocb_poll intel_pstate=disable nosoftlockup hugepagesz=${HUGEPAGE_SIZE} hugepages=${HUGEPAGE_COUNT} hugepagesz=2M hugepages=${HUGEPAGE_2M_COUNT} default_hugepagesz=${HUGEPAGE_SIZE} mitigations=off intel_iommu=on processor.max_cstate=1 idle=poll intel_idle.max_cstate=0 iommu=pt skew_tick=1 tsc=nowatchdog nmi_watchdog=0 softlockup_panic=0 audit=0 mce=off crashkernel=auto vfio-pci.enable_sriov=1
+
+[sysctl]
+# Enhanced network optimizations for OAI
+net.sctp.sctp_mem = 94500000 915000000 927000000
+net.sctp.sctp_rmem = 4096 65536 16777216
+net.sctp.sctp_wmem = 4096 65536 16777216
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.core.netdev_max_backlog = 30000
+net.core.netdev_budget = 600
+
+# RT kernel optimizations
+kernel.sched_rt_runtime_us = -1
+kernel.sched_rt_period_us = 1000000
+vm.stat_interval = 10
+kernel.hung_task_timeout_secs = 600
+
+# Memory and performance tuning
+vm.swappiness = 1
+vm.dirty_ratio = 10  
+vm.dirty_background_ratio = 3
+vm.overcommit_memory = 1
+vm.zone_reclaim_mode = 0
+
+# Interrupt and timer optimizations  
+kernel.timer_migration = 0
+kernel.sched_migration_cost_ns = 5000000
+
+[script]
+script = \${i:PROFILE_DIR}/oai-setup.sh
+EOF
+
+    # Create comprehensive setup script
+    cat > /etc/tuned/oai-realtime/oai-setup.sh << EOF
+#!/bin/bash
+# OAI RT setup script with enhanced configuration
+case "\$1" in
+    start)
+        # Setup hugepages mount
+        mkdir -p /mnt/hugepages
+        if ! mount | grep -q "/mnt/hugepages"; then
+            mount -t hugetlbfs hugetlbfs /mnt/hugepages -o pagesize=${HUGEPAGE_SIZE}
         fi
-    done
+        
+        # Add hugepages to fstab for persistence
+        if ! grep -q "hugetlbfs" /etc/fstab; then
+            echo "hugetlbfs /mnt/hugepages hugetlbfs pagesize=${HUGEPAGE_SIZE} 0 0" >> /etc/fstab
+        fi
+        
+        # Set RT priority and memory limits
+        if ! grep -q "rtprio" /etc/security/limits.d/99-oai-rt.conf 2>/dev/null; then
+            cat > /etc/security/limits.d/99-oai-rt.conf << LIMITS
+# RT priority limits for OAI applications
+* soft rtprio 99
+* hard rtprio 99
+* soft memlock unlimited  
+* hard memlock unlimited
+* soft nice -20
+* hard nice -20
+LIMITS
+        fi
+        
+        # Configure IRQ affinity for housekeeping CPUs
+        echo "$housekeeping_cpus" > /proc/irq/default_smp_affinity 2>/dev/null || true
+        
+        # Set CPU frequency governor to performance for housekeeping CPUs
+        for cpu in {0..$((HOUSEKEEPING_CPUS-1))}; do
+            echo performance > /sys/devices/system/cpu/cpu\$cpu/cpufreq/scaling_governor 2>/dev/null || true
+        done
+        ;;
+    stop)
+        umount /mnt/hugepages 2>/dev/null || true
+        ;;
+esac
+EOF
     
-    # Remove service
-    if [ -f /etc/systemd/system/sriov-setup.service ]; then
-        systemctl stop sriov-setup.service 2>/dev/null || true
-        systemctl disable sriov-setup.service 2>/dev/null || true
-        rm -f /etc/systemd/system/sriov-setup.service
-    fi
+    chmod +x /etc/tuned/oai-realtime/oai-setup.sh
+    
+    # Activate profile
+    tuned-adm profile oai-realtime
+    log "INFO" "Applied oai-realtime tuned profile with enhanced RT parameters"
 }
 
-# VFIO configuration
-configure_vfio() {
-    if [ "$VFIO_ENABLE" = "false" ]; then
-        echo "VFIO configuration skipped"
-        return
-    fi
+# Configure VFIO kernel modules for SR-IOV support
+setup_vfio() {
+    [[ "$ENABLE_VFIO" == "true" ]] || return 0
     
-    echo "Configuring VFIO..."
+    log "INFO" "Configuring VFIO kernel modules for SR-IOV support"
     
-    # Enable VFIO modules
-    cat <<EOF > /etc/modules-load.d/vfio.conf
+    # Load VFIO kernel modules needed for SR-IOV
+    cat > /etc/modules-load.d/vfio.conf << EOF
+# VFIO modules for SR-IOV support with enhanced configuration
+# Device configuration handled by Multus SR-IOV CNI
 vfio
 vfio_iommu_type1
 vfio_pci
 vfio_virqfd
 EOF
-    
-    # Configure VFIO
-    cat <<EOF > /etc/modprobe.d/vfio.conf
-# VFIO configuration for SR-IOV
+
+    # Configure VFIO module parameters with SR-IOV support
+    cat > /etc/modprobe.d/vfio.conf << EOF
+# Enhanced VFIO configuration for SR-IOV support
+# Device configuration handled by Multus SR-IOV CNI
 options vfio enable_unsafe_noiommu_mode=1
 options vfio_iommu_type1 allow_unsafe_interrupts=1
+options vfio_pci enable_sriov=1
+options vfio_pci disable_idle_d3=1
 EOF
-    
-    # Load modules immediately
-    modprobe vfio 2>/dev/null || true
-    modprobe vfio_iommu_type1 2>/dev/null || true
-    modprobe vfio_pci 2>/dev/null || true
+
+    log "INFO" "VFIO kernel modules configured with SR-IOV support"
 }
 
-# Hugepages configuration
-configure_hugepages() {
-    echo "Configuring hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
+# Setup repositories with latest templates
+setup_repositories() {
+    log "INFO" "Setting up container runtime and Kubernetes repositories"
     
-    # Calculate hugepage parameters
-    case $HUGEPAGE_SIZE in
-        "2M")
-            HP_SIZE_KB=2048
-            HP_PARAM="hugepagesz=2M hugepages=${HUGEPAGE_COUNT}"
+    case "$CONTAINER_RUNTIME" in
+        crio)
+            # Setup latest CRI-O repository
+            cat > /etc/yum.repos.d/cri-o.repo << EOF
+[cri-o]
+name=CRI-O
+baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${CRIO_VERSION}/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${CRIO_VERSION}/rpm/repodata/repomd.xml.key
+EOF
             ;;
-        "1G")
-            HP_SIZE_KB=1048576
-            HP_PARAM="hugepagesz=1G hugepages=${HUGEPAGE_COUNT}"
-            ;;
-        *)
-            echo "Unsupported hugepage size: $HUGEPAGE_SIZE"
-            exit 1
+        containerd)
+            # Setup Docker repository for containerd
+            dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
             ;;
     esac
     
-    # Create hugepages mount service
-    cat <<EOF > /etc/systemd/system/hugepages.service
-[Unit]
-Description=Hugepages Setup and Mount
-DefaultDependencies=false
-After=sysinit.target local-fs.target
-Before=basic.target
+    # Setup latest Kubernetes repository
+    cat > /etc/yum.repos.d/kubernetes.repo << EOF
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v${KUBERNETES_VERSION}/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v${KUBERNETES_VERSION}/rpm/repodata/repomd.xml.key
+exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+EOF
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/mkdir -p /mnt/hugepages
-ExecStart=/bin/mount -t hugetlbfs hugetlbfs /mnt/hugepages -o pagesize=${HUGEPAGE_SIZE}
-ExecStop=/bin/umount /mnt/hugepages
+    log "INFO" "Repositories configured for CRI-O ${CRIO_VERSION} and Kubernetes ${KUBERNETES_VERSION}"
+}
 
-[Install]
-WantedBy=multi-user.target
+# Install and configure Kubernetes
+setup_kubernetes() {
+    log "INFO" "Installing and configuring Kubernetes"
+    
+    # Setup repositories first
+    setup_repositories
+    
+    # System preparation
+    log "INFO" "Preparing system for Kubernetes"
+    swapoff -a
+    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+    systemctl disable --now firewalld 2>/dev/null || true
+    setenforce 0 2>/dev/null || true
+    sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+    
+    # Load kernel modules
+    cat > /etc/modules-load.d/k8s.conf << EOF
+overlay
+br_netfilter  
+sctp
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+nf_conntrack
 EOF
     
-    systemctl enable hugepages.service
+    modprobe overlay br_netfilter sctp ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh nf_conntrack 2>/dev/null || true
     
-    # Add to fstab for persistence
-    if ! grep -q "hugetlbfs" /etc/fstab; then
-        echo "hugetlbfs /mnt/hugepages hugetlbfs pagesize=${HUGEPAGE_SIZE} 0 0" >> /etc/fstab
-    fi
-    
-    return "$HP_PARAM"
-}
+    # Enhanced sysctl configuration
+    cat > /etc/sysctl.d/k8s.conf << EOF
+# Kubernetes networking
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
 
-# RT kernel installation
-install_rt_kernel() {
-    if [ "$RT_KERNEL" = "false" ]; then
-        echo "RT kernel installation skipped"
-        return ""
-    fi
-    
-    echo "Installing RT kernel..."
-    
-    # Enable RT repositories
-    dnf install -y epel-release
-    dnf config-manager --enable rt
-    
-    # Install RT kernel
-    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules
-    
-    # RT kernel parameters
-    RT_PARAMS="isolcpus=2-7 nohz_full=2-7 rcu_nocbs=2-7 nosoftlockup"
-    
-    return "$RT_PARAMS"
-}
+# Enhanced networking for RT workloads
+net.netfilter.nf_conntrack_max = 1048576
+net.core.somaxconn = 32768
+net.ipv4.tcp_max_syn_backlog = 65536
+net.core.netdev_max_backlog = 16384
 
-# Container runtime installation
-install_container_runtime() {
-    case $RUNTIME in
-        "crio")
-            echo "Installing CRI-O..."
-            export VERSION=1.28
-            curl -L -o /etc/yum.repos.d/devel:kubic:libcontainers:stable.repo https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/CentOS_9_Stream/devel:kubic:libcontainers:stable.repo
-            curl -L -o /etc/yum.repos.d/devel:kubic:libcontainers:stable:cri-o:${VERSION}.repo https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:${VERSION}/CentOS_9_Stream/devel:kubic:libcontainers:stable:cri-o:${VERSION}.repo
-
-            dnf install -y cri-o cri-tools
-
+# Memory and performance
+vm.max_map_count = 262144
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 524288
+EOF
+    
+    sysctl --system
+    
+    # Install container runtime
+    case "$CONTAINER_RUNTIME" in
+        crio)
+            log "INFO" "Installing CRI-O ${CRIO_VERSION}"
+            dnf install -y cri-o
+            
+            # Enhanced CRI-O configuration for RT workloads
             mkdir -p /etc/crio/crio.conf.d
-            cat <<EOF > /etc/crio/crio.conf.d/02-cgroup-manager.conf
+            cat > /etc/crio/crio.conf.d/02-oai-rt-config.conf << EOF
 [crio.runtime]
 conmon_cgroup = "pod"
 cgroup_manager = "systemd"
-EOF
+default_runtime = "runc"
+pids_limit = 16384
+log_size_max = 52428800
+container_exits_dir = "/var/run/crio/exits"
+container_attach_socket_dir = "/var/run/crio"
 
+[crio.runtime.runtimes.runc]
+runtime_path = "/usr/bin/runc"
+runtime_type = "oci"
+runtime_root = "/run/runc"
+
+[crio.image]
+pause_image = "registry.k8s.io/pause:3.9"
+
+[crio.network]
+cni_default_network = ""
+network_dir = "/etc/cni/net.d/"
+plugin_dirs = ["/opt/cni/bin/"]
+EOF
+            
             systemctl enable --now crio
-            echo 'KUBELET_EXTRA_ARGS="--container-runtime-endpoint=unix:///var/run/crio/crio.sock"' > /etc/sysconfig/kubelet
+            log "INFO" "CRI-O configured and started"
             ;;
-        "containerd")
-            echo "Installing containerd..."
-            dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        containerd)
+            log "INFO" "Installing containerd"
             dnf install -y containerd.io
             
             mkdir -p /etc/containerd
             containerd config default > /etc/containerd/config.toml
+            
+            # Enhanced containerd configuration
             sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+            sed -i 's/sandbox_image = .*/sandbox_image = "registry.k8s.io\/pause:3.9"/' /etc/containerd/config.toml
+            
             systemctl enable --now containerd
+            log "INFO" "containerd configured and started"
             ;;
     esac
-}
-
-# Main installation function
-perform_installation() {
-    echo "Starting RT kernel worker node setup..."
-    echo "Configuration:"
-    echo "  RT Kernel: $RT_KERNEL"
-    echo "  Hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
-    echo "  SR-IOV: $SRIOV_ENABLE"
-    echo "  VFIO: $VFIO_ENABLE"
-    echo "  Runtime: $RUNTIME"
-    if [ -n "$MASTER_IP" ]; then
-        echo "  Master IP: $MASTER_IP"
-    fi
-    echo ""
-
-    # Validate join parameters
-    if [ -z "$MASTER_IP" ] || [ -z "$JOIN_TOKEN" ] || [ -z "$JOIN_HASH" ]; then
-        echo "ERROR: Master IP, join token, and CA hash are required for worker join"
-        echo "Run 'kubeadm token create --print-join-command' on master to get these values"
-        exit 1
-    fi
-
-    # System preparation
-    echo "Preparing system..."
-    dnf update -y
-    dnf install -y wget curl vim git pciutils
-
-    # Backup GRUB configuration
-    cp /etc/default/grub /etc/default/grub.bak
-
-    # Configure hugepages and get parameters
-    HP_PARAM=$(configure_hugepages)
-
-    # Install RT kernel and get parameters
-    RT_PARAM=""
-    if [ "$RT_KERNEL" = "true" ]; then
-        RT_PARAM=$(install_rt_kernel)
-    fi
-
-    # Configure SR-IOV
-    configure_sriov
-
-    # Configure VFIO
-    configure_vfio
-
-    # Build kernel parameters
-    GRUB_PARAMS="intel_iommu=on iommu=pt"
-    [ -n "$HP_PARAM" ] && GRUB_PARAMS="$GRUB_PARAMS $HP_PARAM"
-    [ -n "$RT_PARAM" ] && GRUB_PARAMS="$GRUB_PARAMS $RT_PARAM"
-
-    # Update GRUB
-    echo "Updating GRUB with parameters: $GRUB_PARAMS"
-    sed -i "s/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"$GRUB_PARAMS /" /etc/default/grub
-    grub2-mkconfig -o /boot/grub2/grub.cfg
-
-    # Configure system for Kubernetes
-    swapoff -a
-    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-    systemctl disable --now firewalld
-
-    # Configure SELinux
-    setenforce 0
-    sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
-
-    # Enable kernel modules
-    cat <<EOF > /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-sctp
-EOF
-    modprobe overlay 2>/dev/null || true
-    modprobe br_netfilter 2>/dev/null || true
-    modprobe sctp 2>/dev/null || true
-
-    # Configure sysctl
-    cat <<EOF > /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward = 1
-net.sctp.sctp_mem = 94500000 915000000 927000000
-net.sctp.sctp_rmem = 4096 65536 16777216
-net.sctp.sctp_wmem = 4096 65536 16777216
-EOF
-
-    # RT-specific sysctl settings
-    if [ "$RT_KERNEL" = "true" ]; then
-        cat <<EOF >> /etc/sysctl.d/99-rt-worker.conf
-# RT kernel optimizations
-kernel.sched_rt_runtime_us = -1
-kernel.sched_rt_period_us = 1000000
-vm.stat_interval = 10
-kernel.timer_migration = 0
-EOF
-    fi
-
-    sysctl --system
-
-    # Install container runtime
-    install_container_runtime
-
+    
     # Install Kubernetes
-    echo "Installing Kubernetes..."
-    cat <<EOF > /etc/yum.repos.d/kubernetes.repo
-[kubernetes]
-name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
-exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
-EOF
-
+    log "INFO" "Installing Kubernetes ${KUBERNETES_VERSION}"
     dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-    systemctl enable kubelet
 
-    echo ""
-    echo "========================================="
-    echo "RT kernel worker node setup complete!"
-    echo ""
-    echo "REBOOT REQUIRED to activate RT kernel and all configurations."
-    echo ""
-    echo "After reboot, join the cluster with:"
-    echo "kubeadm join $MASTER_IP:6443 --token $JOIN_TOKEN --discovery-token-ca-cert-hash $JOIN_HASH"
-    echo ""
-    echo "Configuration applied:"
-    echo "- RT Kernel: $RT_KERNEL"
-    echo "- Hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
-    echo "- SR-IOV: $SRIOV_ENABLE"
-    echo "- VFIO: $VFIO_ENABLE"
-    echo "- Runtime: $RUNTIME"
-    echo "========================================="
+    
+    # Enhanced kubelet configuration for RT workloads with CPU reservation
+    local housekeeping_cpus
+    housekeeping_cpus=$(calculate_housekeeping_cpus)
 
-    # Create post-reboot join script
-    cat <<EOF > /root/join-cluster.sh
-#!/bin/bash
-# Auto-generated cluster join script
-echo "Joining Kubernetes cluster..."
-kubeadm join $MASTER_IP:6443 --token $JOIN_TOKEN --discovery-token-ca-cert-hash $JOIN_HASH
-
-if [ \$? -eq 0 ]; then
-    echo "Successfully joined cluster!"
-    echo "Node status:"
-    kubectl --kubeconfig /etc/kubernetes/kubelet.conf get nodes
-else
-    echo "Failed to join cluster. Check network connectivity to master."
-fi
+    # Create kubelet config file with reservedSystemCPUs
+    mkdir -p /var/lib/kubelet
+    cat > /var/lib/kubelet/config.yaml << EOF
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+cgroupDriver: systemd
+cpuManagerPolicy: static
+cpuManagerPolicyOptions:
+   "full-pcpus-only": "true"
+reservedSystemCPUs: "$housekeeping_cpus"
+memorySwap: {}
+topologyManagerPolicy: "best-effort"
+failSwapOn: false
+containerLogMaxSize: 50Mi
+featureGates:
+   CPUManager: true
+   CPUManagerPolicyOptions: true
+   CPUManagerPolicyBetaOptions: true
 EOF
-    chmod +x /root/join-cluster.sh
 
-    echo ""
-    echo "After reboot, run: /root/join-cluster.sh"
+    # Simplified KUBELET_EXTRA_ARGS
+    cat > /etc/sysconfig/kubelet << EOF
+KUBELET_EXTRA_ARGS="--config=/var/lib/kubelet/config.yaml"
+EOF
+
+    systemctl enable --now kubelet
+    log "INFO" "Kubernetes configured with enhanced RT optimizations"
 }
 
-# Main execution logic
-if [ "$ROLLBACK_RT" = "true" ]; then
-    perform_full_rollback
-elif [ "$ROLLBACK" = "true" ]; then
-    perform_k8s_rollback
-else
-    check_system_state
-    perform_installation
-fi
+# Join cluster immediately (before reboot)
+join_cluster_now() {
+    log "INFO" "Joining Kubernetes cluster"
+    
+    #local isolated_cpus
+    #isolated_cpus=$(calculate_isolated_cpus)
+    
+    echo ""
+    echo "=== Joining OAI gNodeB RT Worker Node ==="
+    echo "Current kernel: $(uname -r)"
+    #echo "Housekeeping CPUs: $(calculate_housekeeping_cpus)" 
+    #echo "RT CPUs (after reboot): $isolated_cpus"
+    echo "Primary hugepages (after reboot): ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
+    echo "Secondary hugepages (after reboot): ${HUGEPAGE_2M_COUNT} x 2M"
+    echo "Container Runtime: $CONTAINER_RUNTIME ${CRIO_VERSION}"
+    echo ""
+    
+    if kubeadm join "$MASTER_IP:6443" --token "$JOIN_TOKEN" --discovery-token-ca-cert-hash "$JOIN_HASH"; then
+        echo ""
+        echo "✓ Successfully joined cluster!"
+        echo "Node will be fully RT-capable after reboot."
+        
+        # Wait a moment for kubelet to start
+        sleep 5
+
+	if [[ -f /etc/kubernetes/kubelet.conf ]]; then
+            export KUBECONFIG=/etc/kubernetes/kubelet.conf
+
+            # Wait for node registration and apply labels
+            local node_name=$(hostname)
+            sleep 15
+
+            kubectl label node "$node_name" node-role.kubernetes.io/worker="" --overwrite
+            kubectl label node "$node_name" feature.node.kubernetes.io/network-sriov.capable=true --overwrite
+
+            log "INFO" "Node labeled and configured"
+        fi
+        
+        # Show current cluster status
+        echo ""
+        echo "Current cluster nodes:"
+        kubectl get nodes --kubeconfig /etc/kubernetes/kubelet.conf 2>/dev/null || \
+            echo "Node status will be available after kubelet initialization"
+            
+        log "INFO" "Successfully joined Kubernetes cluster"
+    else
+        die "Failed to join cluster. Check connectivity and credentials."
+    fi
+}
+
+# Handle reboot process
+handle_reboot() {
+    if [[ "$ENABLE_RT" != "true" ]]; then
+        log "INFO" "RT kernel disabled - no reboot required"
+        return 0
+    fi
+    
+    local isolated_cpus
+    isolated_cpus=$(calculate_isolated_cpus)
+    
+    echo ""
+    echo "========================================="
+    echo "=== Setup Complete ==="
+    echo "========================================="
+    echo "Enhanced RT Configuration Summary:"
+    echo "  ✓ RT Kernel: Installed with maximum performance tuning"
+    echo "  ✓ CPU Allocation: $(calculate_housekeeping_cpus) (K8s) | $isolated_cpus (RT)"
+    echo "  ✓ Primary Hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
+    echo "  ✓ Secondary Hugepages: ${HUGEPAGE_2M_COUNT} x 2M"
+    echo "  ✓ NUMA: Single node (numa=off)"
+    echo "  ✓ IOMMU: Enabled with passthrough"
+    echo "  ✓ SR-IOV: VFIO support enabled"
+    echo "  ✓ Performance: Mitigations disabled, idle=poll"
+    echo "  ✓ Container Runtime: $CONTAINER_RUNTIME ${CRIO_VERSION}"
+    echo "  ✓ Kubernetes: ${KUBERNETES_VERSION} joined cluster"
+    echo ""
+    echo "Enhanced kernel parameters applied:"
+    echo "  • CPU isolation with managed IRQ"
+    echo "  • nohz_full and RCU callback offload"
+    echo "  • Thread and IRQ affinity optimization"
+    echo "  • Power management disabled (C-states, idle)"
+    echo "  • Security mitigations disabled for performance"
+    echo "  • Audit and MCE subsystems disabled"
+    echo ""
+    echo "RT kernel activation requires reboot."
+    echo "========================================="
+    
+    if [[ "$AUTO_REBOOT" == "true" ]]; then
+        log "INFO" "Auto-reboot enabled - rebooting in 10 seconds..."
+        echo "Rebooting in 10 seconds to activate enhanced RT kernel..."
+        echo "Press Ctrl+C to cancel"
+        sleep 10
+        log "INFO" "Rebooting to activate enhanced RT kernel"
+        reboot
+    else
+        echo ""
+        read -p "Reboot now to activate enhanced RT kernel? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log "INFO" "User requested reboot - activating enhanced RT kernel"
+            reboot
+        else
+            echo ""
+            echo "Manual reboot required to activate enhanced RT kernel:"
+            echo "  sudo reboot"
+            echo ""
+            echo "After reboot, verify with:"
+            echo "  uname -r                    # Should show RT kernel"
+            echo "  tuned-adm active           # Should show oai-realtime"  
+            echo "  cat /proc/cmdline | grep isolcpus"
+            echo "  kubectl get nodes          # Verify node status"
+            echo "  cat /proc/meminfo | grep Huge  # Verify hugepages"
+        fi
+    fi
+    echo "========================================="
+}
+
+
+# Main execution
+main() {
+    parse_args "$@"
+    
+    # Handle rollback first
+    if [[ "$ROLLBACK" == "true" ]]; then
+        perform_rollback
+        return
+    fi
+
+    if [[ "${ROLLBACK_CLUSTER:-false}" == "true" ]]; then
+        perform_cluster_rollback
+        return
+    fi
+    
+    echo ""
+    echo "========================================="
+    echo "OAI gNodeB Enhanced RT Worker Node Setup - RHEL 9.5"
+    echo "Enhanced with maximum performance kernel parameters"
+    echo "========================================="
+    log "INFO" "Starting enhanced setup with CPU allocation: first $HOUSEKEEPING_CPUS CPUs for K8s, rest for RT"
+    
+    register_system
+    validate_system
+    
+    if [[ "$ENABLE_RT" == "true" ]]; then
+        setup_realtime
+    fi
+    
+    setup_vfio
+    setup_kubernetes
+    
+    # Join cluster before reboot
+    if [[ -n "$MASTER_IP" ]]; then
+        join_cluster_now
+    else
+        log "INFO" "No master IP provided - skipping cluster join"
+        echo "To join cluster later, use:"
+        echo "kubeadm join <MASTER_IP>:6443 --token <TOKEN> --discovery-token-ca-cert-hash <HASH>"
+    fi
+    
+    handle_reboot
+}
+
+# Execute if called directly
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"

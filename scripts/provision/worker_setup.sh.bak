@@ -1,0 +1,501 @@
+#!/bin/bash
+set -euo pipefail
+
+# Configuration variables
+MASTER_IP="${MASTER_IP:-}"
+JOIN_TOKEN="${JOIN_TOKEN:-}"
+JOIN_HASH="${JOIN_HASH:-}"
+HUGEPAGE_SIZE="${HUGEPAGE_SIZE:-1G}"
+HUGEPAGE_COUNT="${HUGEPAGE_COUNT:-8}"
+HOUSEKEEPING_CPUS="${HOUSEKEEPING_CPUS:-5}"  # First N CPUs for K8s
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-crio}"
+ENABLE_RT="${ENABLE_RT:-true}"
+ENABLE_VFIO="${ENABLE_VFIO:-true}"
+AUTO_REBOOT="${AUTO_REBOOT:-false}"
+
+# Red Hat registration
+RH_ORG_ID="${RH_ORG_ID:-}"
+RH_ACTIVATION_KEY="${RH_ACTIVATION_KEY:-}"
+
+readonly SCRIPT_NAME=$(basename "$0")
+readonly LOG_FILE="/var/log/${SCRIPT_NAME%.*}.log"
+
+# Usage function
+usage() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+OAI gNodeB RT Worker Node Setup for RHEL 9.5
+Setup → Join Cluster → Reboot to Activate RT Kernel
+
+Options:
+    --master-ip IP              Kubernetes master IP
+    --join-token TOKEN          Kubernetes join token  
+    --join-hash HASH           CA cert hash
+    --hugepage-size SIZE       Hugepage size: 2M or 1G (default: 1G)
+    --hugepage-count NUM       Number of hugepages (default: 8)
+    --housekeeping-cpus NUM    CPUs reserved for K8s (default: 5)
+    --runtime RUNTIME          Container runtime: crio|containerd (default: crio)
+    --rh-org-id ID             Red Hat organization ID
+    --rh-activation-key KEY    Red Hat activation key
+    --auto-reboot              Reboot automatically after setup
+    --disable-rt               Skip RT kernel installation
+    --disable-vfio             Skip VFIO configuration
+    --help                     Show this help
+
+Examples:
+    # Basic RT setup with Red Hat registration
+    $0 --rh-org-id 12345 --rh-activation-key mykey123
+    
+    # Full automated worker setup  
+    $0 --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456... \\
+       --rh-org-id 12345 --rh-activation-key mykey123 --auto-reboot
+    
+    # Custom CPU allocation (first 8 CPUs for K8s)
+    $0 --housekeeping-cpus 8 --hugepage-count 16 --master-ip 192.168.1.100 \\
+       --join-token abc123... --join-hash sha256:def456...
+
+Note: SR-IOV device configuration handled by Multus SR-IOV CNI
+      VFIO kernel modules configured for SR-IOV hardware access
+EOF
+    exit 0
+}
+
+# Parse arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --master-ip) MASTER_IP="$2"; shift 2 ;;
+            --join-token) JOIN_TOKEN="$2"; shift 2 ;;
+            --join-hash) JOIN_HASH="$2"; shift 2 ;;
+            --hugepage-size) HUGEPAGE_SIZE="$2"; shift 2 ;;
+            --hugepage-count) HUGEPAGE_COUNT="$2"; shift 2 ;;
+            --housekeeping-cpus) HOUSEKEEPING_CPUS="$2"; shift 2 ;;
+            --runtime) CONTAINER_RUNTIME="$2"; shift 2 ;;
+            --rh-org-id) RH_ORG_ID="$2"; shift 2 ;;
+            --rh-activation-key) RH_ACTIVATION_KEY="$2"; shift 2 ;;
+            --auto-reboot) AUTO_REBOOT="true"; shift ;;
+            --disable-rt) ENABLE_RT="false"; shift ;;
+            --disable-vfio) ENABLE_VFIO="false"; shift ;;
+            --help) usage ;;
+            *) echo "Unknown option: $1"; usage ;;
+        esac
+    done
+}
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$1] $2" | tee -a "$LOG_FILE"
+}
+
+die() {
+    log "ERROR" "$1"
+    exit 1
+}
+
+# Calculate isolated CPUs (all CPUs except first N housekeeping)
+calculate_isolated_cpus() {
+    local total_cpus
+    total_cpus=$(nproc)
+    
+    if [[ $total_cpus -le $HOUSEKEEPING_CPUS ]]; then
+        die "Not enough CPUs: need >$HOUSEKEEPING_CPUS, found $total_cpus"
+    fi
+    
+    local isolated_start=$HOUSEKEEPING_CPUS
+    local isolated_end=$((total_cpus - 1))
+    
+    echo "${isolated_start}-${isolated_end}"
+}
+
+# Register with Red Hat
+register_system() {
+    if [[ -n "$RH_ORG_ID" && -n "$RH_ACTIVATION_KEY" ]]; then
+        log "INFO" "Registering system with Red Hat"
+        
+        subscription-manager register \
+            --org="$RH_ORG_ID" \
+            --activationkey="$RH_ACTIVATION_KEY" \
+            --force || die "Failed to register system"
+            
+        subscription-manager attach --auto || die "Failed to attach subscriptions"
+        log "INFO" "System registered successfully"
+    else
+        log "INFO" "Skipping Red Hat registration (no credentials provided)"
+        subscription-manager identity &>/dev/null || \
+            die "System not registered. Provide --rh-org-id and --rh-activation-key"
+    fi
+}
+
+# Validate prerequisites  
+validate_system() {
+    log "INFO" "Validating system prerequisites"
+    
+    [[ $EUID -eq 0 ]] || die "Must run as root"
+    [[ -f /etc/redhat-release ]] || die "Not a RHEL system"
+    
+    local rhel_version
+    rhel_version=$(grep -oE 'release [0-9]+\.[0-9]+' /etc/redhat-release | cut -d' ' -f2)
+    [[ "${rhel_version%%.*}" -eq 9 ]] || die "Requires RHEL 9.x (found: $rhel_version)"
+    
+    local total_cpus
+    total_cpus=$(nproc)
+    log "INFO" "System has $total_cpus CPUs, reserving first $HOUSEKEEPING_CPUS for K8s"
+    
+    if [[ -n "$MASTER_IP" ]]; then
+        [[ -n "$JOIN_TOKEN" && -n "$JOIN_HASH" ]] || \
+            die "JOIN_TOKEN and JOIN_HASH required with MASTER_IP"
+        ping -c1 "$MASTER_IP" &>/dev/null || die "Cannot reach master IP: $MASTER_IP"
+    fi
+    
+    # Validate hugepage size
+    case "$HUGEPAGE_SIZE" in
+        2M|1G) ;;
+        *) die "Invalid hugepage size: $HUGEPAGE_SIZE (use 2M or 1G)" ;;
+    esac
+    
+    # Validate container runtime
+    case "$CONTAINER_RUNTIME" in
+        crio|containerd) ;;
+        *) die "Invalid container runtime: $CONTAINER_RUNTIME (use crio or containerd)" ;;
+    esac
+    
+    log "INFO" "System validation passed"
+}
+
+# Configure RT kernel and tuned profile
+setup_realtime() {
+    log "INFO" "Setting up RT kernel and tuned profile"
+    
+    local isolated_cpus
+    isolated_cpus=$(calculate_isolated_cpus)
+    log "INFO" "CPU allocation - Housekeeping: 0-$((HOUSEKEEPING_CPUS-1)), Isolated: $isolated_cpus"
+    
+    # Enable RT repository
+    subscription-manager repos --enable="rhel-9-for-$(uname -m)-rt-rpms" || 
+        die "Failed to enable RT repository"
+    
+    # Install RT packages
+    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules tuned-profiles-realtime || 
+        die "Failed to install RT packages"
+    
+    # Configure realtime variables
+    cat > /etc/tuned/realtime-variables.conf << EOF
+# OAI gNodeB RT configuration
+# Housekeeping CPUs: 0-$((HOUSEKEEPING_CPUS-1)) (for Kubernetes)  
+# Isolated CPUs: $isolated_cpus (for RT containers)
+isolated_cores=$isolated_cpus
+EOF
+    
+    # Create custom tuned profile for OAI with single NUMA node
+    mkdir -p /etc/tuned/oai-realtime
+    cat > /etc/tuned/oai-realtime/tuned.conf << EOF
+[main]
+summary=OAI gNodeB RT profile with single NUMA node and IOMMU support
+include=realtime
+
+[bootloader]  
+cmdline_oai=+numa=off intel_iommu=on iommu=pt hugepagesz=${HUGEPAGE_SIZE} hugepages=${HUGEPAGE_COUNT}
+
+[sysctl]
+# OAI-specific network optimizations
+net.sctp.sctp_mem = 94500000 915000000 927000000
+net.sctp.sctp_rmem = 4096 65536 16777216
+net.sctp.sctp_wmem = 4096 65536 16777216
+
+# RT kernel optimizations
+vm.stat_interval = 10
+kernel.sched_rt_runtime_us = -1
+kernel.sched_rt_period_us = 1000000
+
+# Memory management
+vm.swappiness = 1
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 3
+
+[script]
+script = \${i:PROFILE_DIR}/oai-setup.sh
+EOF
+
+    # Create setup script for tuned
+    cat > /etc/tuned/oai-realtime/oai-setup.sh << EOF
+#!/bin/bash
+# OAI-specific RT setup script
+case "\$1" in
+    start)
+        # Setup hugepages mount
+        mkdir -p /mnt/hugepages
+        if ! mount | grep -q "/mnt/hugepages"; then
+            mount -t hugetlbfs hugetlbfs /mnt/hugepages -o pagesize=${HUGEPAGE_SIZE}
+        fi
+        
+        # Add hugepages to fstab for persistence
+        if ! grep -q "hugetlbfs" /etc/fstab; then
+            echo "hugetlbfs /mnt/hugepages hugetlbfs pagesize=${HUGEPAGE_SIZE} 0 0" >> /etc/fstab
+        fi
+        
+        # Set RT priority limits
+        if ! grep -q "rtprio" /etc/security/limits.d/99-oai-rt.conf 2>/dev/null; then
+            cat > /etc/security/limits.d/99-oai-rt.conf << LIMITS
+# RT priority limits for OAI applications
+* soft rtprio 99
+* hard rtprio 99
+* soft memlock unlimited  
+* hard memlock unlimited
+LIMITS
+        fi
+        ;;
+    stop)
+        umount /mnt/hugepages 2>/dev/null || true
+        ;;
+esac
+EOF
+    
+    chmod +x /etc/tuned/oai-realtime/oai-setup.sh
+    
+    # Activate profile
+    tuned-adm profile oai-realtime
+    log "INFO" "Applied oai-realtime tuned profile with IOMMU and single NUMA support"
+}
+
+# Configure VFIO kernel modules for SR-IOV support
+setup_vfio() {
+    [[ "$ENABLE_VFIO" == "true" ]] || return 0
+    
+    log "INFO" "Configuring VFIO kernel modules for SR-IOV support"
+    
+    # Load VFIO kernel modules needed for SR-IOV
+    cat > /etc/modules-load.d/vfio.conf << EOF
+# VFIO modules for SR-IOV support
+# Device configuration handled by Multus SR-IOV CNI
+vfio
+vfio_iommu_type1
+vfio_pci
+vfio_virqfd
+EOF
+
+    # Configure VFIO module parameters
+    cat > /etc/modprobe.d/vfio.conf << EOF
+# VFIO configuration for SR-IOV support
+# Device configuration handled by Multus SR-IOV CNI
+options vfio enable_unsafe_noiommu_mode=1
+options vfio_iommu_type1 allow_unsafe_interrupts=1
+EOF
+
+    log "INFO" "VFIO kernel modules configured for SR-IOV hardware access"
+}
+
+# Install and configure Kubernetes
+setup_kubernetes() {
+    log "INFO" "Installing and configuring Kubernetes"
+    
+    # System preparation
+    log "INFO" "Preparing system for Kubernetes"
+    swapoff -a
+    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+    systemctl disable --now firewalld 2>/dev/null || true
+    setenforce 0 2>/dev/null || true
+    sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+    
+    # Load kernel modules
+    cat > /etc/modules-load.d/k8s.conf << EOF
+overlay
+br_netfilter  
+sctp
+EOF
+    
+    modprobe overlay br_netfilter sctp 2>/dev/null || true
+    
+    # Configure sysctl
+    cat > /etc/sysctl.d/k8s.conf << EOF
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+EOF
+    
+    sysctl --system
+    
+    # Install container runtime
+    case "$CONTAINER_RUNTIME" in
+        crio)
+            log "INFO" "Installing CRI-O container runtime"
+            dnf install -y cri-o cri-tools
+            
+            # Configure CRI-O for RT workloads
+            mkdir -p /etc/crio/crio.conf.d
+            cat > /etc/crio/crio.conf.d/02-rt-config.conf << EOF
+[crio.runtime]
+conmon_cgroup = "pod"
+cgroup_manager = "systemd"
+default_runtime = "runc"
+
+[crio.runtime.runtimes.runc]
+runtime_path = "/usr/bin/runc"
+runtime_type = "oci"
+EOF
+            
+            systemctl enable --now crio
+            log "INFO" "CRI-O configured and started"
+            ;;
+        containerd)
+            log "INFO" "Installing containerd container runtime"
+            dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            dnf install -y containerd.io
+            
+            mkdir -p /etc/containerd
+            containerd config default > /etc/containerd/config.toml
+            sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+            systemctl enable --now containerd
+            log "INFO" "containerd configured and started"
+            ;;
+    esac
+    
+    # Install Kubernetes
+    log "INFO" "Installing Kubernetes components"
+    cat > /etc/yum.repos.d/kubernetes.repo << EOF
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+EOF
+
+    dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+    
+    # Configure kubelet for RT workloads
+    cat > /etc/sysconfig/kubelet << EOF
+KUBELET_EXTRA_ARGS="--container-runtime-endpoint=unix:///var/run/crio/crio.sock --cpu-manager-policy=static --kube-reserved-cgroup=/system.slice/kubelet.service --system-reserved=cpu=1,memory=1Gi --cpu-manager-reconcile-period=5s"
+EOF
+
+    systemctl enable kubelet
+    log "INFO" "Kubernetes installed and configured with RT optimizations"
+}
+
+# Join cluster immediately (before reboot)
+join_cluster_now() {
+    log "INFO" "Joining Kubernetes cluster"
+    
+    local isolated_cpus
+    isolated_cpus=$(calculate_isolated_cpus)
+    
+    echo ""
+    echo "=== Joining OAI gNodeB RT Worker Node ==="
+    echo "Current kernel: $(uname -r)"
+    echo "Housekeeping CPUs: 0-$((HOUSEKEEPING_CPUS-1))" 
+    echo "RT CPUs (after reboot): $isolated_cpus"
+    echo "Hugepages (after reboot): ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
+    echo "Container Runtime: $CONTAINER_RUNTIME"
+    echo ""
+    
+    if kubeadm join "$MASTER_IP:6443" --token "$JOIN_TOKEN" --discovery-token-ca-cert-hash "$JOIN_HASH"; then
+        echo ""
+        echo "✓ Successfully joined cluster!"
+        echo "Node will be fully RT-capable after reboot."
+        
+        # Wait a moment for kubelet to start
+        sleep 5
+        
+        # Show current cluster status
+        echo ""
+        echo "Current cluster nodes:"
+        kubectl get nodes --kubeconfig /etc/kubernetes/kubelet.conf 2>/dev/null || \
+            echo "Node status will be available after kubelet initialization"
+            
+        log "INFO" "Successfully joined Kubernetes cluster"
+    else
+        die "Failed to join cluster. Check connectivity and credentials."
+    fi
+}
+
+# Handle reboot process
+handle_reboot() {
+    if [[ "$ENABLE_RT" != "true" ]]; then
+        log "INFO" "RT kernel disabled - no reboot required"
+        return 0
+    fi
+    
+    local isolated_cpus
+    isolated_cpus=$(calculate_isolated_cpus)
+    
+    echo ""
+    echo "========================================="
+    echo "=== Setup Complete ==="
+    echo "========================================="
+    echo "Configuration Summary:"
+    echo "  ✓ RT Kernel: Installed (activation pending)"
+    echo "  ✓ CPU Allocation: 0-$((HOUSEKEEPING_CPUS-1)) (K8s) | $isolated_cpus (RT)"
+    echo "  ✓ Hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
+    echo "  ✓ IOMMU: Enabled (intel_iommu=on iommu=pt)"
+    echo "  ✓ VFIO: $([ "$ENABLE_VFIO" = "true" ] && echo "Enabled" || echo "Disabled")"
+    echo "  ✓ Container Runtime: $CONTAINER_RUNTIME"
+    echo "  ✓ Kubernetes: Joined cluster"
+    echo ""
+    echo "RT kernel requires reboot to activate."
+    echo "========================================="
+    
+    if [[ "$AUTO_REBOOT" == "true" ]]; then
+        log "INFO" "Auto-reboot enabled - rebooting in 10 seconds..."
+        echo "Rebooting in 10 seconds to activate RT kernel..."
+        echo "Press Ctrl+C to cancel"
+        sleep 10
+        log "INFO" "Rebooting to activate RT kernel"
+        reboot
+    else
+        echo ""
+        read -p "Reboot now to activate RT kernel? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log "INFO" "User requested reboot - activating RT kernel"
+            reboot
+        else
+            echo ""
+            echo "Manual reboot required to activate RT kernel:"
+            echo "  sudo reboot"
+            echo ""
+            echo "After reboot, verify with:"
+            echo "  uname -r                    # Should show RT kernel"
+            echo "  tuned-adm active           # Should show oai-realtime"  
+            echo "  cat /proc/cmdline | grep isolcpus"
+            echo "  kubectl get nodes          # Verify node status"
+        fi
+    fi
+    echo "========================================="
+}
+
+# Main execution
+main() {
+    parse_args "$@"
+    
+    echo ""
+    echo "========================================="
+    echo "OAI gNodeB RT Worker Node Setup - RHEL 9.5"
+    echo "========================================="
+    log "INFO" "Starting setup with CPU allocation: first $HOUSEKEEPING_CPUS CPUs for K8s, rest for RT"
+    
+    register_system
+    validate_system
+    
+    if [[ "$ENABLE_RT" == "true" ]]; then
+        setup_realtime
+    fi
+    
+    setup_vfio
+    setup_kubernetes
+    
+    # Join cluster before reboot
+    if [[ -n "$MASTER_IP" ]]; then
+        join_cluster_now
+    else
+        log "INFO" "No master IP provided - skipping cluster join"
+        echo "To join cluster later, use:"
+        echo "kubeadm join <MASTER_IP>:6443 --token <TOKEN> --discovery-token-ca-cert-hash <HASH>"
+    fi
+    
+    handle_reboot
+}
+
+# Execute if called directly
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
