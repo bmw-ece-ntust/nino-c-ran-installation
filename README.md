@@ -199,14 +199,35 @@ Write your installation/integration plan & status in here:
       sudo subscription-manager repos --enable rhel-9-for-x86_64-rt-rpms
       ```
 
-   3. Run the worker_setup.sh script to provision your system 
+   3. Run the worker_setup.sh script to provision your system as `root`
+
+      You will ned to have redhat-activation-key and organization id first for `rh_activation_key` and `rh-org-id`.
+      > [!NOTE] [Creating and managing activatio keys](https://docs.redhat.com/en/documentation/subscription_central/1-latest/html/getting_started_with_activation_keys_on_the_hybrid_cloud_console/assembly-creating-managing-activation-keys)
+
+      Examples:
+      - housekeeping_cpus: 6 
+      - hugepage_count: 40
+      - hugepage_size: "1G"
+      - crio_version: "1.31"
+      - k8s_version: "1.31"
+      - auto_reboot: true
+      - rollback: false
+
+      Get `join-token` and `join-hash` from `scripts/ansible/playbooks/kubeconfig/join-params.yml` for latest cluster
 
       ```
       # Example based on my current setup
       ./script/provision/worker_setup.sh \
-        --master-ip 192.168.8.114 \
-        --join-token cl76in.xyfjn0w1vyhub1pa \
-        --join-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0 
+        --master-ip {{ master_ip }} \
+        --join-token {{ join_token }} \
+        --join-hash {{ join_hash }} \
+        --rh-org-id {{ rh_org_id }} \
+        --rh-activation-key {{ rh_activation_key }} \
+        --housekeeping-cpus {{ housekeeping_cpus }} \
+        --hugepage-count {{ hugepage_count }} \
+        --hugepage-size {{ hugepage_size }} \
+        --crio-version {{ crio_version }} \
+        --k8s-version {{ k8s_version }}
         
       ```
 

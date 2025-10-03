@@ -1,4 +1,4 @@
-# RT Worker Configuration
+# Worker Flags
 rh_org_id: "15973292"
 rh_activation_key: "350740da-7427-42b2-8ff6-15fde8b6eaaa"
 housekeeping_cpus: 6
@@ -8,10 +8,13 @@ crio_version: "1.31"
 k8s_version: "1.31"
 auto_reboot: true
 rollback: false
+# Master Flags
 master_api_endpoint: "192.168.8.114"
 master_pod_cidr: "10.128.0.0/14"
 master_svc_cidr: "10.96.0.0/12"
 runtime: "crio"
+# Zabbix Node Setup
+# Will finish this later
 zabbix_env:
   server: "192.168.8.75"
   server_active: "192.168.8.75"
