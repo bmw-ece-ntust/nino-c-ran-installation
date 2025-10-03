@@ -1,1 +1,1 @@
-kubeadm join 192.168.8.114:6443 --token ka8f5h.ulzd75y65613qnkc --discovery-token-ca-cert-hash sha256:a8f795c463277efa1648c87a61b9dc97b750c1efc31200bfeda2e6f9176a6b44 
+kubeadm join 192.168.8.114:6443 --token iseqf5.lki7uulyr3ifn4tu --discovery-token-ca-cert-hash sha256:dfad40174f77c7bb31e2b5f6677beddf9e5a3fd88e618088e0e560e977436430 

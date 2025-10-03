@@ -8,7 +8,7 @@ install_master:
 	ansible-playbook -i scripts/ansible/hosts.yml scripts/ansible/playbooks/phase0.yaml
 
 copy_kubeconfig:
-	ansible-playbook -i scripts/ansible/hosts.yml scripts/ansible/playbooks/phase0.yaml
+	ansible-playbook -i scripts/ansible/hosts.yml scripts/ansible/playbooks/phase1.yaml
 
 install_worker:
 	ansible-playbook -i scripts/ansible/hosts.yml scripts/ansible/playbooks/phase2.yaml
