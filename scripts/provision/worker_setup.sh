@@ -65,6 +65,7 @@ Examples:
     $0 --hugepage-size 1G --hugepage-count 32 --hugepage-2m-count 1024 \\
        --housekeeping-cpus 8 --master-ip 192.168.1.100 --join-token ... --join-hash ...
        
+
     # Rollback to standard configuration
     $0 --rollback
 
@@ -84,7 +85,7 @@ perform_cluster_rollback() {
 
     # Try to remove node from cluster if kubectl is available
     if [[ -f /etc/kubernetes/kubelet.conf ]]; then
-        export KUBECONFIG=/etc/kubernetes/kubelet.conf
+        #export KUBECONFIG=/etc/kubernetes/kubelet.conf
         kubectl delete node "$node_name" --ignore-not-found=true 2>/dev/null || true
     fi
 
@@ -128,7 +129,7 @@ parse_args() {
             --disable-rt) ENABLE_RT="false"; shift ;;
             --disable-vfio) ENABLE_VFIO="false"; shift ;;
             --rollback) ROLLBACK="true"; shift ;;
-	   --rollback-cluster) ROLLBACK_CLUSTER="true"; shift ;;
+	        --rollback-cluster) ROLLBACK_CLUSTER="true"; shift ;;
             --help) usage ;;
             *) echo "Unknown option: $1"; usage ;;
         esac
@@ -174,7 +175,7 @@ perform_rollback() {
     echo "========================================="
 
     # Reset
-    kubeadm reset --force
+    kubeadm reset --force || true
     
     # Stop services
     log "INFO" "Stopping services"
@@ -210,7 +211,7 @@ perform_rollback() {
     
     # Clean network and system settings
     rm -f /etc/sysctl.d/k8s.conf /etc/sysctl.d/99-oai-rt.conf
-    rm -f /etc/modules-load.d/k8s.conf /etc/modules-load.d/vfio.conf
+    rm -f /etc/modules-load.d/k8s.conf /etc/modules-load.d/vfio.conf /etc/modules-load.d/sctp.conf
     rm -f /etc/modprobe.d/vfio.conf
     rm -f /etc/security/limits.d/99-oai-rt.conf
     
@@ -251,6 +252,26 @@ perform_rollback() {
     
     # Apply system defaults
     sysctl --system
+
+    # Switch to standard kernel if running RT
+    if [[ "$(uname -r)" == *"+rt"* ]]; then
+        log "INFO" "Running RT kernel, switching default to standard"
+        
+        local standard_kernel=$(grubby --info=ALL | grep "^kernel=" | grep -v "rt" | head -1 | cut -d'"' -f2)
+        
+        if [[ -z "$standard_kernel" ]]; then
+            dnf install -y kernel 2>/dev/null || die "No standard kernel available"
+            standard_kernel=$(grubby --info=ALL | grep "^kernel=" | grep -v "rt" | head -1 | cut -d'"' -f2)
+        fi
+        
+        grubby --set-default="$standard_kernel"
+        log "INFO" "Default kernel set to: $(basename $standard_kernel)"
+        log "INFO" "Rebooting to standard kernel for cleanup"
+        reboot
+        exit 0
+    fi
+    
+    log "INFO" "Running standard kernel, proceeding with cleanup"
     
     log "INFO" "Rollback completed successfully"
     echo ""
@@ -259,6 +280,8 @@ perform_rollback() {
     echo "System restored to standard configuration."
     echo "Reboot recommended to activate changes."
     echo "========================================="
+
+    #reboot
     
     exit 0
 }
@@ -336,9 +359,25 @@ setup_realtime() {
         die "Failed to enable RT repository"
     
     # Install RT packages
-    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules tuned-profiles-realtime || 
+    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules kernel-rt-modules-extra tuned-profiles-realtime linuxptp.x86_64 || 
         die "Failed to install RT packages"
+    # Set RT kernel as default boot option
+    log "INFO" "Configuring RT kernel as default boot option"
     
+    # Get the latest RT kernel version
+    local rt_kernel_version
+    rt_kernel_version=$(rpm -q kernel-rt --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' | tail -1)
+    
+    if [[ -n "$rt_kernel_version" ]]; then
+        # Set RT kernel as default using grubby
+        grubby --set-default "/boot/vmlinuz-${rt_kernel_version}+rt" || \
+            die "Failed to set RT kernel as default"
+        
+        log "INFO" "RT kernel ${rt_kernel_version}+rt set as default boot option"
+    else
+        log "WARN" "Could not determine RT kernel version"
+    fi 
+
     # Configure realtime variables
     cat > /etc/tuned/realtime-variables.conf << EOF
 # OAI gNodeB RT configuration with enhanced performance parameters
@@ -454,6 +493,12 @@ vfio
 vfio_iommu_type1
 vfio_pci
 vfio_virqfd
+EOF
+
+    # Load SCTP related modules
+    cat > /etc/modules-load.d/sctp.conf << EOF
+# Enhanced VFIO configuration for SR-IOV support
+sctp
 EOF
 
     # Configure VFIO module parameters with SR-IOV support
@@ -611,31 +656,6 @@ EOF
     log "INFO" "Installing Kubernetes ${KUBERNETES_VERSION}"
     dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
 
-    
-    # Enhanced kubelet configuration for RT workloads with CPU reservation
-    local housekeeping_cpus
-    housekeeping_cpus=$(calculate_housekeeping_cpus)
-
-    # Create kubelet config file with reservedSystemCPUs
-    mkdir -p /var/lib/kubelet
-    cat > /var/lib/kubelet/config.yaml << EOF
-kind: KubeletConfiguration
-apiVersion: kubelet.config.k8s.io/v1beta1
-cgroupDriver: systemd
-cpuManagerPolicy: static
-cpuManagerPolicyOptions:
-   "full-pcpus-only": "true"
-reservedSystemCPUs: "$housekeeping_cpus"
-memorySwap: {}
-topologyManagerPolicy: "best-effort"
-failSwapOn: false
-containerLogMaxSize: 50Mi
-featureGates:
-   CPUManager: true
-   CPUManagerPolicyOptions: true
-   CPUManagerPolicyBetaOptions: true
-EOF
-
     # Simplified KUBELET_EXTRA_ARGS
     cat > /etc/sysconfig/kubelet << EOF
 KUBELET_EXTRA_ARGS="--config=/var/lib/kubelet/config.yaml"
@@ -671,14 +691,17 @@ join_cluster_now() {
         sleep 5
 
 	if [[ -f /etc/kubernetes/kubelet.conf ]]; then
-            export KUBECONFIG=/etc/kubernetes/kubelet.conf
+            #export KUBECONFIG=/etc/kubernetes/kubelet.conf
 
             # Wait for node registration and apply labels
             local node_name=$(hostname)
             sleep 15
 
-            kubectl label node "$node_name" node-role.kubernetes.io/worker="" --overwrite
-            kubectl label node "$node_name" feature.node.kubernetes.io/network-sriov.capable=true --overwrite
+            kubectl label node "$node_name" node-role.kubernetes.io/worker="" --overwrite || true
+            kubectl label node "$node_name" feature.node.kubernetes.io/network-sriov.capable=true --overwrite || true
+
+            echo "Patch RT Kubelet"
+            apply_rt_kubelet_config
 
             log "INFO" "Node labeled and configured"
         fi
@@ -695,6 +718,29 @@ join_cluster_now() {
     fi
 }
 
+apply_rt_kubelet_config() {
+    log "INFO" "Applying RT kubelet configuration from ansible"
+    
+    # Count CPU
+    local housekeeping_cpus
+    housekeeping_cpus=$(calculate_housekeeping_cpus)
+    
+    if [[ -f /tmp/kubelet-rt-config.yaml ]]; then
+        #cp /tmp/kubelet-rt-config.yaml /var/lib/kubelet/config.yaml
+        #reservedSystemCPUs: "$housekeeping_cpus"
+        cat /tmp/kubelet-rt-config.yaml >> /var/lib/kubelet/config.yaml
+        sed -i "s/@RESERVED_CPU@/$housekeeping_cpus/g" /var/lib/kubelet/config.yaml
+        rm /var/lib/kubelet/cpu_manager_state || true
+        systemctl restart kubelet
+        sleep 10
+        log "INFO" "RT kubelet configuration applied"
+        log "INFO" "$(cat /var/lib/kubelet/cpu_manager_state || true)"
+
+    else
+        log "WARN" "RT kubelet config not provided by ansible"
+    fi
+}
+
 # Handle reboot process
 handle_reboot() {
     if [[ "$ENABLE_RT" != "true" ]]; then
@@ -702,8 +748,8 @@ handle_reboot() {
         return 0
     fi
     
-    local isolated_cpus
-    isolated_cpus=$(calculate_isolated_cpus)
+    # local isolated_cpus
+    # isolated_cpus=$(calculate_isolated_cpus)
     
     echo ""
     echo "========================================="
@@ -711,7 +757,6 @@ handle_reboot() {
     echo "========================================="
     echo "Enhanced RT Configuration Summary:"
     echo "  ✓ RT Kernel: Installed with maximum performance tuning"
-    echo "  ✓ CPU Allocation: $(calculate_housekeeping_cpus) (K8s) | $isolated_cpus (RT)"
     echo "  ✓ Primary Hugepages: ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
     echo "  ✓ Secondary Hugepages: ${HUGEPAGE_2M_COUNT} x 2M"
     echo "  ✓ NUMA: Single node (numa=off)"
@@ -732,34 +777,6 @@ handle_reboot() {
     echo "RT kernel activation requires reboot."
     echo "========================================="
     
-    if [[ "$AUTO_REBOOT" == "true" ]]; then
-        log "INFO" "Auto-reboot enabled - rebooting in 10 seconds..."
-        echo "Rebooting in 10 seconds to activate enhanced RT kernel..."
-        echo "Press Ctrl+C to cancel"
-        sleep 10
-        log "INFO" "Rebooting to activate enhanced RT kernel"
-        reboot
-    else
-        echo ""
-        read -p "Reboot now to activate enhanced RT kernel? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            log "INFO" "User requested reboot - activating enhanced RT kernel"
-            reboot
-        else
-            echo ""
-            echo "Manual reboot required to activate enhanced RT kernel:"
-            echo "  sudo reboot"
-            echo ""
-            echo "After reboot, verify with:"
-            echo "  uname -r                    # Should show RT kernel"
-            echo "  tuned-adm active           # Should show oai-realtime"  
-            echo "  cat /proc/cmdline | grep isolcpus"
-            echo "  kubectl get nodes          # Verify node status"
-            echo "  cat /proc/meminfo | grep Huge  # Verify hugepages"
-        fi
-    fi
-    echo "========================================="
 }
 
 

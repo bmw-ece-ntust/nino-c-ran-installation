@@ -1,0 +1,48 @@
+---
+- name: Phase 1 - Get admin.conf from master
+  hosts: masters
+  tasks:
+    - name: Check if admin.conf exists
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: admin_conf
+
+    - name: Fail if admin.conf not found
+      fail:
+        msg: "Kubernetes admin.conf not found on master"
+      when: not admin_conf.stat.exists
+
+    - name: Fetch admin.conf from master
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: ./kubeconfig/admin.conf
+        flat: yes
+      delegate_to: "{{ groups['masters'][0] }}"
+
+    - name: Get cluster join command
+      shell: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Save join command locally
+      copy:
+        content: "{{ join_command.stdout }}"
+        dest: "./kubeconfig/join-command.txt"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Parse join parameters
+      set_fact:
+        master_ip: "{{ join_command.stdout.split()[2].split(':')[0] }}"
+        join_token: "{{ join_command.stdout.split()[4] }}"
+        join_hash: "{{ join_command.stdout.split()[6] }}"
+
+    - name: Save join parameters
+      copy:
+        content: |
+          master_ip: {{ master_ip }}
+          join_token: {{ join_token }}
+          join_hash: {{ join_hash }}
+        dest: "./kubeconfig/join-params.yml"
+      delegate_to: localhost
+      run_once: true

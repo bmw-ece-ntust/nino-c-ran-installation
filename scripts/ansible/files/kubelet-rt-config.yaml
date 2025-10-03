@@ -1,0 +1,17 @@
+reservedSystemCPUs: @RESERVED_CPU@
+systemReserved:
+  cpu: "2"
+  memory: 3Gi
+kubeReserved:
+  cpu: "3"
+  memory: 3Gi
+topologyManagerPolicy: "single-numa-node"
+cpuManagerPolicy: static
+cpuManagerPolicyOptions:
+  full-pcpus-only: "true"
+failSwapOn: false
+featureGates:
+  CPUManager: true
+  CPUManagerPolicyAlphaOptions: true
+  CPUManagerPolicyBetaOptions: true
+  CPUManagerPolicyOptions: true

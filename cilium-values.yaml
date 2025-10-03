@@ -1,0 +1,18 @@
+cni:
+  exclusive: false
+sctp:
+  enabled: true
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+#   peerService:
+#     clusterDomain: "cluster.local"
+# kubeProxyReplacement: false
+# Need enable node-port
+# bpf:
+#   masquerade: true
+#routingMode: "tunnel"
+#tunnelProtocol: "vxlan"

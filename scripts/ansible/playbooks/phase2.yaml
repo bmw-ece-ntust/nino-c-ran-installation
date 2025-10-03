@@ -1,0 +1,94 @@
+---
+- name: Phase 2 - Deploy RT workers
+  hosts: workers
+  vars_files:
+    - ./kubeconfig/join-params.yml
+  tasks:
+    - name: Copy worker setup script to workers
+      copy:
+        src: ../../provision/worker_setup.sh
+        dest: /tmp/worker_setup.sh
+        mode: '0755'
+
+    - name: Copy RT kubelet config from ansible
+      copy:
+        src: ../files/kubelet-rt-config.yaml
+        dest: /tmp/kubelet-rt-config.yaml
+        mode: '0644'
+
+    # Rollback Loop
+    - name: Drain and remove node from cluster before rollback
+      shell: |
+        kubectl --kubeconfig={{ playbook_dir }}/kubeconfig/admin.conf drain {{ inventory_hostname }} --ignore-daemonsets --delete-emptydir-data --force --timeout=300s
+        kubectl --kubeconfig={{ playbook_dir }}/kubeconfig/admin.conf delete node {{ inventory_hostname }}
+      delegate_to: localhost
+      when: rollback | default(false) | bool
+      ignore_errors: yes
+
+    - name: Perform rollback if requested
+      shell: /tmp/worker_setup.sh --rollback
+      when: rollback | bool
+      register: rollback_result
+
+    - name: Reboot node after rollback
+      reboot:
+        reboot_timeout: 600  # 10 minutes instead of 5
+        msg: "Rebooting to complete Kubernetes cleanup"
+      when: rollback | default(false) | bool
+
+    - name: Stop execution after rollback
+      meta: end_play
+      when: rollback | bool
+
+    # Rollback End
+
+    - name: Create .kube directory
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0700'
+
+    - name: Copy admin.conf to worker before setup
+      copy:
+        src: ./kubeconfig/admin.conf
+        dest: /root/.kube/config
+        mode: '0600'
+
+    - name: Execute RT worker setup
+      shell: |
+        /tmp/worker_setup.sh \
+          --master-ip {{ master_ip }} \
+          --join-token {{ join_token }} \
+          --join-hash {{ join_hash }} \
+          --rh-org-id {{ rh_org_id }} \
+          --rh-activation-key {{ rh_activation_key }} \
+          --housekeeping-cpus {{ housekeeping_cpus }} \
+          --hugepage-count {{ hugepage_count }} \
+          --hugepage-size {{ hugepage_size }} \
+          --crio-version {{ crio_version }} \
+          --k8s-version {{ k8s_version }} \
+          {% if auto_reboot %}--auto-reboot{% endif %}
+      register: setup_result
+      failed_when: false
+      async: 3600
+      poll: 30
+
+    #- name: Verify worker node status
+    #  shell: kubectl get nodes
+    #  environment:
+    #    KUBECONFIG: /root/.kube/config
+    #  register: node_status
+    #  when: setup_result.rc == 0
+    #  ignore_errors: yes
+
+    - name: Reboot after successful installation
+      reboot:
+        reboot_timeout: 600
+        msg: "Rebooting after Kubernetes installation"
+      when: 
+        - setup_result.rc == 0
+        - auto_reboot | default(false) | bool
+
+    # - name: Print Setup Result
+    #   ansible.builtin.debug: 
+    #     var: setup_result.stdout_lines

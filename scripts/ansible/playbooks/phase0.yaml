@@ -1,0 +1,61 @@
+---
+- name: Phase 0 - Deploy Master Node
+  hosts: masters
+  vars_files:
+    - ./kubeconfig/join-params.yml
+  tasks:
+
+    - name: Copy master setup script to workers
+      copy:
+        src: "{{ playbook_dir }}/../../provision/master_setup.sh"
+        dest: /tmp/master_setup.sh
+        mode: '0755'
+
+    - name: Copy Cilum Config
+      copy:
+        src: "{{ playbook_dir }}/../files/cilium-values.yaml"
+        dest: /tmp/cilium-values.yaml
+        mode: '0644'
+
+    # Rollback Loop
+    - name: Perform rollback if requested
+      shell: /tmp/master_setup.sh --rollback
+      when: rollback | bool
+      register: rollback_result
+
+    - name: Stop execution after rollback
+      meta: end_play
+      when: rollback | bool
+
+    # Rollback Loop end
+    - name: Build Master setup
+      set_fact:
+        setup_cmd: >-
+          /tmp/master_setup.sh 
+          --crio-version {{ crio_version }} 
+          --k8s-version {{ k8s_version }} 
+          --runtime {{ runtime }} 
+          --multi-node 
+          {% if master_api_endpoint %} --api-address {{ master_api_endpoint }}{% endif %}
+          {% if master_pod_cidr %} --pod-network {{ master_pod_cidr }}{% endif %}
+          {% if master_svc_cidr %} --service-network {{ master_svc_cidr }}{% endif %}
+          {% if auto_reboot %}--auto-reboot{% endif %}
+
+    - name: Execute Master setup
+      shell: "{{ setup_cmd }}"
+      register: setup_result
+      failed_when: false
+      async: 3600
+      poll: 30
+
+    - name: Print Setup Result
+      ansible.builtin.debug: 
+        var: setup_result.stdout_lines
+
+    - name: Verify master node status
+      shell: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: node_status
+      when: setup_result.rc == 0
+      ignore_errors: yes
