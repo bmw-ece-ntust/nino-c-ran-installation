@@ -375,9 +375,6 @@ install() {
 
     cilium status --wait
 
-    log "INFO" "Installing Multus CNI"
-    kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
-    kubectl wait --for=condition=ready pod -l app=multus -n kube-system --timeout=300s || log "WARN" "Multus readiness check timed out"
     
     log "INFO" "Installing OpenEBS"
     kubectl apply -f https://openebs.github.io/charts/openebs-operator.yaml
@@ -388,12 +385,17 @@ install() {
     install_prometheus
 
     # Install PTP
-    kubectl apply -f https://github.com/openshift/ptp-operator/releases/latest/download/ptp-operator.yaml
+    kubectl apply -f https://raw.githubusercontent.com/bmw-ece-ntust/nino-c-ran-installation/refs/heads/main/charts/ptp-agent/daemonset.yaml
+    kubectl apply -f https://raw.githubusercontent.com/bmw-ece-ntust/nino-c-ran-installation/refs/heads/main/charts/ptp-agent/configmap.yaml
 
     # Install Node Feature Discovery
     kubectl apply -k https://github.com/kubernetes-sigs/node-feature-discovery/deployment/overlays/default
+
+    log "INFO" "Installing Multus CNI"
+    kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
+    kubectl wait --for=condition=ready pod -l app=multus -n kube-system --timeout=300s || log "WARN" "Multus readiness check timed out"
     
-    log "INFO" "Installation complete"
+    log "INFO" "[!]-[ Installation complete ]"
     echo ""
     kubectl get nodes
     echo ""

@@ -15,13 +15,13 @@ spec:
       hostNetwork: true
       hostPID: true
       nodeSelector:
-        node-role.kubernetes.io/worker: ""
+        feature.node.kubernetes.io/network-sriov.capable: true
       tolerations:
       - operator: Exists
       containers:
       - name: ptp4l
-        image: your-registry.com/linuxptp:1.0
-        command: ["/ptp4l-entrypoint.sh"]
+        image: bmw.ece.ntust.edu.tw/infidel/ptp-agent:latest
+        command: ["/ptp4l.sh"]
         securityContext:
           privileged: true
         resources:
@@ -36,8 +36,8 @@ spec:
           mountPath: /tmp
           
       - name: phc2sys
-        image: your-registry.com/linuxptp:1.0
-        command: ["/phc2sys-entrypoint.sh"]
+        image: bmw.ece.ntust.edu.tw/infidel/ptp-agent:latest
+        command: ["/phc2sys.sh"]
         securityContext:
           privileged: true
         resources:

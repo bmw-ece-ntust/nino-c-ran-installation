@@ -1,1 +1,3 @@
 *.swp
+scripts/ansible/hosts.yml
+scripts/ansible/hosts.yaml
