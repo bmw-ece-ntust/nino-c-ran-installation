@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ptp-config
+  namespace: kube-system
+data:
+  default: |
+    interface=auto
+    domain=24
+    slave_only=1
+    tx_timeout=50
+    log_level=6
+    network_transport=L2
+    hybrid_e2e=0
+  
+  worker-rt-00: |
+    interface=ens7f0
+    domain=24
+    slave_only=1
+    tx_timeout=50
+    log_level=6
+    network_transport=L2
+    hybrid_e2e=0
+  
+  worker-rt-01: |
+    interface=ens2f0
+    domain=24
+    slave_only=1
+    tx_timeout=50
+    log_level=6
+    network_transport=L2
+    hybrid_e2e=0

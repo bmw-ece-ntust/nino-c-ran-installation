@@ -213,6 +213,37 @@ EOF
     fi
 }
 
+install_prometheus() {
+    log "INFO" "Installing Prometheus stack"
+    
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    helm repo update
+    
+    kubectl create namespace monitoring 2>/dev/null || true
+    
+    helm install prometheus prometheus-community/kube-prometheus-stack \
+        --namespace monitoring \
+        --set prometheus.prometheusSpec.retention=15d \
+        --set prometheus.prometheusSpec.resources.requests.memory=2Gi \
+        --set grafana.adminPassword=admin \
+        --wait --timeout=10m
+    
+    log "INFO" "Prometheus installed - Grafana: http://$(kubectl get nodes -o wide | awk 'NR==2{print $6}'):$(kubectl get svc -n monitoring prometheus-grafana -o jsonpath='{.spec.ports[0].nodePort}')"
+}
+
+install_helm() {
+    log "INFO" "Installing Helm"
+    
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    
+    if command -v helm >/dev/null 2>&1; then
+        log "INFO" "Helm installed: $(helm version --short)"
+    else
+        log "ERROR" "Helm installation failed"
+        exit 1
+    fi
+}
+
 install_runtime() {
     log "INFO" "Installing $RUNTIME"
     
@@ -310,7 +341,20 @@ install() {
 
     mkdir -p $HOME/.kube || true
     cp /etc/kubernetes/admin.conf $HOME/.kube/config
-    #chown $(id -u):$(id -g) $HOME/.kube/config
+
+    
+    # Install Helm
+    install_helm
+
+    # Install SRIOV Plumbing
+    helm install -n sriov-network-operator \
+        --create-namespace --version 1.6.0 \
+        --set sriovOperatorConfig.deploy=true \
+        --set configDaemonNodeSelector='feature.node.kubernetes.io/network-sriov.capable: "true"' \
+        --set sriovOperatorConfig.configurationMode=daemon \
+        --set sriovOperatorConfig.enableInjector=false \
+        --set sriovOperatorConfig.enableOperatorWebhook=false \
+        sriov-network-operator oci://ghcr.io/k8snetworkplumbingwg/sriov-network-operator-chart
 
     # Single-node configuration
     if [ "$SINGLE_NODE" = "true" ]; then
@@ -329,8 +373,8 @@ install() {
         cilium install --set sctp.enabled=true
     fi
 
-    #cilium status --wait
-    
+    cilium status --wait
+
     log "INFO" "Installing Multus CNI"
     kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
     kubectl wait --for=condition=ready pod -l app=multus -n kube-system --timeout=300s || log "WARN" "Multus readiness check timed out"
@@ -339,6 +383,15 @@ install() {
     kubectl apply -f https://openebs.github.io/charts/openebs-operator.yaml
     kubectl wait --for=condition=ready pod -l app=openebs -n openebs --timeout=300s || log "WARN" "OpenEBS readiness check timed out"
     kubectl patch storageclass openebs-hostpath -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+    
+    # Install Prometheus
+    install_prometheus
+
+    # Install PTP
+    kubectl apply -f https://github.com/openshift/ptp-operator/releases/latest/download/ptp-operator.yaml
+
+    # Install Node Feature Discovery
+    kubectl apply -k https://github.com/kubernetes-sigs/node-feature-discovery/deployment/overlays/default
     
     log "INFO" "Installation complete"
     echo ""

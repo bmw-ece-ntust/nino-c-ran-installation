@@ -35,11 +35,9 @@
           --crio-version {{ crio_version }} 
           --k8s-version {{ k8s_version }} 
           --runtime {{ runtime }} 
-          --multi-node 
           {% if master_api_endpoint %} --api-address {{ master_api_endpoint }}{% endif %}
           {% if master_pod_cidr %} --pod-network {{ master_pod_cidr }}{% endif %}
           {% if master_svc_cidr %} --service-network {{ master_svc_cidr }}{% endif %}
-          {% if auto_reboot %}--auto-reboot{% endif %}
 
     - name: Execute Master setup
       shell: "{{ setup_cmd }}"

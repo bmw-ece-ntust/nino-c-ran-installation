@@ -1,6 +1,6 @@
 ---
 - name: Install Zabbix active agent
-  hosts: master
+  hosts: all
   become: yes
 
   vars:

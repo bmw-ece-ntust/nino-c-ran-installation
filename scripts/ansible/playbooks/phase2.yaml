@@ -54,6 +54,15 @@
         dest: /root/.kube/config
         mode: '0600'
 
+    - name: Taint master as unschedulable
+      shell: |
+        MASTER=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o name | cut -d/ -f2)
+        kubectl taint nodes $MASTER node-role.kubernetes.io/control-plane:NoSchedule --overwrite
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/kubeconfig/admin.conf"
+      delegate_to: localhost
+      run_once: true
+
     - name: Execute RT worker setup
       shell: |
         /tmp/worker_setup.sh \
@@ -73,13 +82,14 @@
       async: 3600
       poll: 30
 
-    #- name: Verify worker node status
-    #  shell: kubectl get nodes
-    #  environment:
-    #    KUBECONFIG: /root/.kube/config
-    #  register: node_status
-    #  when: setup_result.rc == 0
-    #  ignore_errors: yes
+    - name: Taint master as unschedulable
+      shell: |
+        MASTER=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o name | cut -d/ -f2)
+        kubectl taint nodes $MASTER node-role.kubernetes.io/control-plane:NoSchedule --overwrite
+      environment:
+        KUBECONFIG: "{{ playbook_dir }}/kubeconfig/admin.conf"
+      delegate_to: localhost
+      run_once: true
 
     - name: Reboot after successful installation
       reboot:
@@ -89,6 +99,15 @@
         - setup_result.rc == 0
         - auto_reboot | default(false) | bool
 
+    # Debug Log
+    #- name: Verify worker node status
+    #  shell: kubectl get nodes
+    #  environment:
+    #    KUBECONFIG: /root/.kube/config
+    #  register: node_status
+    #  when: setup_result.rc == 0
+    #  ignore_errors: yes
+        
     # - name: Print Setup Result
     #   ansible.builtin.debug: 
     #     var: setup_result.stdout_lines
