@@ -1,0 +1,12 @@
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetwork
+metadata:
+  name: {{ .Chart.Name }}-{{ .Values.multus.ofh.ruName }}
+  namespace:  {{ .Values.multus.ofh.sriovNetworkNamespace }}
+spec:
+  networkNamespace: {{ .Release.Namespace }}
+  resourceName:  {{ .Values.multus.ofh.sriovResourceName }}
+  vlan: {{ .Values.multus.ofh.vlan }}
+  spoofChk: "off"
+  trust: "on"
+  capabilities: '{ "mac": true }'

@@ -1,0 +1,43 @@
+proxy:
+  enabled: true
+  type: LoadBalancer
+  tls:
+    enabled: true
+    servicePort: 443
+    containerPort: 8443
+
+certificates:
+  enabled: true
+  cluster:
+    - secretName: ocloud-bmwlab.duckdns.org
+      commonName: ocloud-bmwlab.duckdns.org
+
+ingressController:
+  enabled: true
+  installCRDs: false
+  ingressClass: kong
+  ingressClassAnnotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  labels:
+    release: prometheus
+
+admin:
+  enabled: true
+  type: ClusterIP  # Use ClusterIP for port-forward access
+  http:
+    enabled: true
+    servicePort: 8001
+    containerPort: 8001
+  tls:
+    enabled: true
+    servicePort: 8444
+    containerPort: 8444
+
+env:
+  admin_listen: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+  admin_gui_listen: 0.0.0.0:8002, 0.0.0.0:8445 ssl
+

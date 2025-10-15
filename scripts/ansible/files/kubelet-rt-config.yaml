@@ -5,7 +5,8 @@ systemReserved:
 kubeReserved:
   cpu: "3"
   memory: 3Gi
-topologyManagerPolicy: "single-numa-node"
+#topologyManagerPolicy: "single-numa-node"
+topologyManagerPolicy: "best-effort"
 cpuManagerPolicy: static
 cpuManagerPolicyOptions:
   full-pcpus-only: "true"

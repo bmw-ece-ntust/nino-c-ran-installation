@@ -37,29 +37,26 @@
 ssh bmw@192.168.8.75
 ```
 
-
-
 ## Action Items
 
 Write your installation/integration plan & status in here:
 
 ### User Provisioned
 
-| Step                         | Command/Action                                               | Description                                        | Status |
-| ---------------------------- | ------------------------------------------------------------ | -------------------------------------------------- | ------ |
-| Check Server Support for SRIOV and NUMA | Human Intervention                                    | Google this up., based on your machine.                      | :white_check_mark: |
-| Configure BIOS for SRIOV and NUMA       | Human Intervention                                    | Google this up., based on your machine.                      | :white_check_mark: |
-| Install OS for Kubernetes Master Node   | Human Intervention                      | Install RHEL 9.4 | :white_check_mark: |
-| Install OS for Kubernetes Worker Node   | Human Intervention                      | Install RHEL 9.4 | :white_check_mark: |
-| Setup Master Node                       | run script `provision/master_setup.sh` on master Node | Turn this node into master node and install necessary components for O-Cloud Operation | :white_check_mark: |
-| Setup Worker Node for RT Workload       | run script `provision/worker_setup.sh` on worker Node | Turn this node into worker node and adjust the kernel into RT | :white_check_mark: |
-| Build and Publish OAI 7.2 Image         | run script `deployment/build_image.sh`                | You can run this from any machine with internet connection   | :white_check_mark: |
-| Deploy OAI 7.2 Chart                    | run script `deployment/deploy_test.sh`                | Deploy Chart of OAI GNB                                      | :white_check_mark: |
-| Integrate OAI with O-RU                                       | Human Intervention                                                       | Update the configmap parameters based on the connected O-RU                                                               | :white_check_mark:                    |
-| Integrate OAI with Core Network | Human Intervention | Update the values.yaml based on the network plan (PLMN, N2 & N3 Connection) | :white_check_mark: |
-| End-to-end integration with COTS UE | Humen Intervention | Register UE to CN that conncected to GNB<br>*Current Status: UE got relese after PDU requests.* | :warning: |
-
-
+| Step                                                   | Command/Action                                               | Description                                                                                     | Status             |
+| ----------------------------                           | ------------------------------------------------------------ | --------------------------------------------------                                              | ------             |
+| Check Server Support for SRIOV and NUMA                | Human Intervention                                           | Google this up., based on your machine.                                                         | :white_check_mark: |
+| Configure BIOS for SRIOV and NUMA                      | Human Intervention                                           | Google this up., based on your machine.                                                         | :white_check_mark: |
+| Install OS for Kubernetes Master Node                  | Human Intervention                                           | Install RHEL 9.4                                                                                | :white_check_mark: |
+| Install OS for Kubernetes Worker Node                  | Human Intervention                                           | Install RHEL 9.4                                                                                | :white_check_mark: |
+| Setup Master Node                                      | run script `provision/master_setup.sh` on master Node        | Turn this node into master node and install necessary components for O-Cloud Operation          | :white_check_mark: |
+| Setup Worker Node for RT Workload                      | run script `provision/worker_setup.sh` on worker Node        | Turn this node into worker node and adjust the kernel into RT                                   | :white_check_mark: |
+| Build and Publish OAI 7.2 Image                        | run script `deployment/build_image.sh`                       | You can run this from any machine with internet connection                                      | :white_check_mark: |
+| [Deploy OAI RFSim](./docs/testing-deploy-oai-rfsim.md) | Human Intervention, Follow the guide                         | Deploy Chart of OAI GNB                                                                         | :white_check_mark: |
+| Deploy OAI 7.2 Chart                                   | run script `deployment/deploy_test.sh`                       | Deploy Chart of OAI GNB                                                                         | :white_check_mark: |
+| Integrate OAI with O-RU                                | Human Intervention                                           | Update the configmap parameters based on the connected O-RU                                     | :white_check_mark: |
+| Integrate OAI with Core Network                        | Human Intervention                                           | Update the values.yaml based on the network plan (PLMN, N2 & N3 Connection)                     | :white_check_mark: |
+| End-to-end integration with COTS UE                    | Humen Intervention                                           | Register UE to CN that conncected to GNB<br>*Current Status: UE got relese after PDU requests.* | :warning:          |
 
 ### CICD Provisioned Infra
 
@@ -69,14 +66,14 @@ Write your installation/integration plan & status in here:
 
 ## System Architecture
 
-![](assets/sys-architecture.svg)
+![Logical](assets/sys-logical.svg)
 
 **Important Components to Include in System Architecture (O-RAN O-DU Architecture Pattern):**
 
 1. **Master Node**
    1. Cilium CNI
    2. Multus CNI
-   3. OpenEBS	
+   3. OpenEBS
 2. **Worker Node**
    1. RT Kernel
    2. SRIOV Enabled
@@ -94,7 +91,6 @@ Write your installation/integration plan & status in here:
 | Memory           | 16 GB RAM                              |
 | Kubernetes       | 1.28 or higher                         |
 | CRI-O            | 1.28 or higher                         |
-
 
 
 ### Worker Node
@@ -128,8 +124,6 @@ Write your installation/integration plan & status in here:
 │       └── worker_setup.sh
 └── src
 ```
-
-
 
 ### Master Node Setup
 
@@ -166,14 +160,14 @@ Write your installation/integration plan & status in here:
      --multi-node          Setup multi-node cluster (keeps taints)
      --rollback            Remove all Kubernetes components
      --help                Show this help
-   
+
    Examples:
      scripts/provision/master_setup.sh --api-address 192.168.1.100
      scripts/provision/master_setup.sh --runtime containerd --multi-node
      scripts/provision/master_setup.sh --rollback
    ```
 
-   
+
 
 ### Worker Node Setup
 
@@ -190,7 +184,7 @@ Write your installation/integration plan & status in here:
       ```bash
       kubeadm token create --print-join-command
       # Example output
-      # kubeadm join 192.168.8.114:6443 --token cl76in.xyfjn0w1vyhub1pa --discovery-token-ca-cert-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0 
+      # kubeadm join 192.168.8.114:6443 --token cl76in.xyfjn0w1vyhub1pa --discovery-token-ca-cert-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0
       ```
 
    2. Enable RT kernel package on the RedHat subscription-manager
@@ -205,7 +199,7 @@ Write your installation/integration plan & status in here:
       > [!NOTE] [Creating and managing activatio keys](https://docs.redhat.com/en/documentation/subscription_central/1-latest/html/getting_started_with_activation_keys_on_the_hybrid_cloud_console/assembly-creating-managing-activation-keys)
 
       Examples:
-      - housekeeping_cpus: 6 
+      - housekeeping_cpus: 6
       - hugepage_count: 40
       - hugepage_size: "1G"
       - crio_version: "1.31"
@@ -228,7 +222,7 @@ Write your installation/integration plan & status in here:
         --hugepage-size {{ hugepage_size }} \
         --crio-version {{ crio_version }} \
         --k8s-version {{ k8s_version }}
-        
+
       ```
 
 5. Script Full functions
@@ -248,20 +242,20 @@ Write your installation/integration plan & status in here:
      --rollback             Remove Kubernetes worker components only
      --rollback-rt          Full rollback including RT kernel
      --help                 Show this help
-   
+
    Examples:
      ./scripts/provision/worker_setup.sh --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456...
      ./scripts/provision/worker_setup.sh --hugepage-size 2M --hugepage-count 1024 --disable-rt
      ./scripts/provision/worker_setup.sh --rollback-rt
-   
+
    To get join parameters from master, run on master:
      kubeadm token create --print-join-command
-   
+
    ```
 
-   
 
-## 
+
+##
 
 ## Table of Paramaters
 

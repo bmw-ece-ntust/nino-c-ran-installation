@@ -183,6 +183,7 @@ perform_rollback() {
     systemctl disable kubelet 2>/dev/null || true
     systemctl stop crio containerd 2>/dev/null || true
     systemctl disable crio containerd 2>/dev/null || true
+    echo "blacklist sctp" >> /etc/modprobe.d/sctp-blacklist.conf || true
     
     # Reset tuned profile to default
     log "INFO" "Resetting tuned profile"
@@ -496,6 +497,7 @@ vfio_virqfd
 EOF
 
     # Load SCTP related modules
+    echo "" >| /etc/modprobe.d/sctp-blacklist.conf || true
     cat > /etc/modules-load.d/sctp.conf << EOF
 # Enhanced VFIO configuration for SR-IOV support
 sctp
@@ -569,7 +571,6 @@ setup_kubernetes() {
     cat > /etc/modules-load.d/k8s.conf << EOF
 overlay
 br_netfilter  
-sctp
 ip_vs
 ip_vs_rr
 ip_vs_wrr

@@ -9,7 +9,7 @@ data:
       interface: auto
       domain: 24
       slave_only: 1
-      tx_timeout: 50
+      tx_timeout: 30
       log_level: 6
       network_transport: L2
       hybrid_e2e: 0
@@ -18,16 +18,16 @@ data:
       interface: ens7f0
       domain: 24
       slave_only: 1
-      tx_timeout: 50
+      tx_timeout: 30
       log_level: 6
       network_transport: L2
       hybrid_e2e: 0
     
     worker-rt-01:
-      interface: ens2f0
+      interface: auto
       domain: 24
       slave_only: 1
-      tx_timeout: 50
+      tx_timeout: 30
       log_level: 6
       network_transport: L2
       hybrid_e2e: 0

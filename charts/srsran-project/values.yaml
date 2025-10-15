@@ -1,0 +1,199 @@
+#
+# Copyright 2021-2025 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+replicaCount: 1
+
+image:
+  # Check https://hub.docker.com/u/softwareradiosystems for available images
+  repository: softwareradiosystems/srsran-project
+  pullPolicy: IfNotPresent
+  tag: release_avx512-11c9bbabb6__2025-09-15
+
+imagePullSecrets:
+  - name: regcred
+
+nameOverride: "srsran-project-cudu"
+fullnameOverride: "srsran-project-cudu-chart"
+configmap:
+  main: { nameOverride: "" }
+  o1: { nameOverride: "" }
+  entrypoint: { nameOverride: "" }
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "srsadmin-gnb"
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+# securityContext for LB disabled
+securityContext:
+  capabilities:
+    add: ["SYS_NICE", "NET_ADMIN"]
+  privileged: true
+
+# securityContext for LB enabled
+# securityContext:
+#   allowPrivilegeEscalation: false
+#   capabilities:
+#     add:
+#       - IPC_LOCK
+#       - SYS_ADMIN
+#       - SYS_RAWIO
+#       - NET_RAW
+#       - SYS_NICE
+
+# Disable hostnetwork in case you enable LB
+network:
+  hostNetwork: true
+
+resources:
+  enable_hugepages_1gi: true
+  enable_hugepages_2mi: false
+  limits:
+    cpu: 12
+    memory: 16Gi
+    hugepages-1Gi: 2Gi
+    openshift.io/sriov_srsran: 1
+  requests:
+    cpu: 12
+    memory: 16Gi
+    hugepages-1Gi: 2Gi
+    openshift.io/sriov_srsran: 1
+
+nodeSelector:
+  kubernetes.io/hostname: "worker-rt-00"
+
+tolerations: {}
+affinity: {}
+
+metricsService:
+  enabled: false
+  type: ClusterIP
+  # loadBalancerIP: "10.0.0.123"
+  # Make sure this port matches the port in the gnb config
+  port: 8001
+  targetPort: 8001
+
+debugging:
+  enabled: true
+  preserveOldLogs: true
+  storageCapacity: "100Mi"
+  hostPath: "/mnt/debugging-logs"
+  containerPath: "/tmp"
+
+o1:
+  enable_srs_o1: false
+
+sriovConfig:
+  enabled: true
+  extendedResourceName: "openshift.io/sriov_srsran"
+
+# service:
+#   type: LoadBalancer
+#   LoadBalancerIP: "127.0.0.1"  # external IP of the LoadBalancer service
+#   extendedResourceName: "intel.com/intel_sriov_netdevice"
+#   ports:
+#     n2:
+#       port: 38412
+#       outport: 38412
+#       protocol: SCTP
+#     n3:
+#       port: 2152
+#       outport: 32152
+#       protocol: UDP
+#     o1:
+#       port: 830
+#       outport: 830
+#       protocol: TCP
+
+config:
+  gnb-config.yml: |-
+    cu_cp:
+      amf:
+        addr: 127.0.1.100
+        port: 38412
+        bind_addr: 127.0.0.1
+        supported_tracking_areas:
+          - tac: 7
+            plmn_list:
+              - plmn: "00101"
+                tai_slice_support_list:
+                  - sst: 1
+
+    ru_ofh:
+      t1a_max_cp_dl: 535
+      t1a_min_cp_dl: 286
+      t1a_max_cp_ul: 535
+      t1a_min_cp_ul: 286
+      t1a_max_up: 390
+      t1a_min_up: 80
+      ta4_max: 500
+      ta4_min: 25
+      is_prach_cp_enabled: false
+      compr_method_ul: bfp
+      compr_bitwidth_ul: 9
+      compr_method_dl: bfp
+      compr_bitwidth_dl: 9
+      compr_method_prach: bfp
+      compr_bitwidth_prach: 9
+      enable_ul_static_compr_hdr: true
+      enable_dl_static_compr_hdr: true
+      iq_scaling: 5.5
+      cells:
+        - network_interface: enp1s0f0
+          ru_mac_addr: 70:b3:d5:e1:5b:06
+          du_mac_addr: 80:61:5f:0d:df:aa
+          vlan_tag_cp: 4
+          vlan_tag_up: 4
+          prach_port_id: [4, 5]
+          dl_port_id: [0, 1, 2, 3]
+          ul_port_id: [0, 1]
+
+    cell_cfg:
+      dl_arfcn: 637212
+      band: 78
+      channel_bandwidth_MHz: 100
+      common_scs: 30
+      plmn: "00101"
+      tac: 7
+      pci: 1
+      nof_antennas_dl: 4
+      nof_antennas_ul: 2
+      prach:
+        prach_config_index: 7
+        prach_root_sequence_index: 1
+        zero_correlation_zone: 0
+        prach_frequency_start: 0
+      tdd_ul_dl_cfg:
+        dl_ul_tx_period: 10
+        nof_dl_slots: 7
+        nof_dl_symbols: 6
+        nof_ul_slots: 2
+        nof_ul_symbols: 4
+
+    log:
+      filename: /tmp/gnb.log
+      all_level: warning
+
+    pcap:
+      mac_enable: false
+      mac_filename: /tmp/gnb_mac.pcap
+      ngap_enable: false
+      ngap_filename: /tmp/gnb_ngap.pcap
+
+    metrics:
+      autostart_stdout_metrics: true
+      enable_json: false
+
+    remote_control:
+      bind_addr: 0.0.0.0
+      enabled: false
+      port: 8001

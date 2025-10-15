@@ -13,32 +13,50 @@ spec:
         app: linuxptp
     spec:
       hostNetwork: true
-      hostIPC: true
+      hostPID: true
+      #shareProcessNamespace: true
+      #hostIPC: true
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         feature.node.kubernetes.io/network-sriov.capable: "true"
       tolerations:
       - operator: Exists
       containers:
-      - name: linuxptp
+      - name: ptp4l
         image: bmw.ece.ntust.edu.tw/infidel/ptp-agent:latest
-        command: ["/bin/bash", "-c"]
-        args:
-        - |
-          source /entrypoint.sh
-          /usr/sbin/ptp4l -i "$INTERFACE" -m -H -2 -s -f "$PTP_CONFIG" &
-          /usr/sbin/phc2sys -w -m -s "$INTERFACE" -R 8 -f "$PTP_CONFIG"
+        command: ["/ptp4l.sh"]
         securityContext:
           privileged: true
         resources:
           requests:
-            cpu: 150m
-            memory: 100Mi
+            cpu: 100m
+            memory: 50Mi
         volumeMounts:
         - name: config
           mountPath: /config
           readOnly: true
+        - name: shared
+          mountPath: /tmp
+          
+      - name: phc2sys
+        image: bmw.ece.ntust.edu.tw/infidel/ptp-agent:latest
+        command: ["/phc2sys.sh"]
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 50Mi
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: shared
+          mountPath: /tmp
+          
       volumes:
       - name: config
         configMap:
           name: ptp-config
+      - name: shared
+        emptyDir: {}

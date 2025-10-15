@@ -1,0 +1,20 @@
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetworkNodePolicy
+metadata:
+  name: sriov-srsran
+  namespace: sriov-network-operator
+spec:
+  resourceName: sriov_srsran
+  nodeSelector:
+    feature.node.kubernetes.io/network-sriov.capable: "true"
+  priority: 13
+  deviceType: vfio-pci
+  isRdma: false
+  numVfs: 6
+  mtu: 9216
+  linkType: eth
+  nicSelector:
+    pfNames:
+      - 'ens7f0#4-5'
+    rootDevices:
+      - '0000:ca:00.0' 

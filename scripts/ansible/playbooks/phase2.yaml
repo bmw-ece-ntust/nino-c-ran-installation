@@ -16,6 +16,12 @@
         dest: /tmp/kubelet-rt-config.yaml
         mode: '0644'
 
+    - name: Copy admin.conf to worker before setup
+      copy:
+        src: ./kubeconfig/admin.conf
+        dest: /root/.kube/config
+        mode: '0600'
+
     # Rollback Loop
     - name: Drain and remove node from cluster before rollback
       shell: |
@@ -47,12 +53,6 @@
         path: /root/.kube
         state: directory
         mode: '0700'
-
-    - name: Copy admin.conf to worker before setup
-      copy:
-        src: ./kubeconfig/admin.conf
-        dest: /root/.kube/config
-        mode: '0600'
 
     - name: Taint master as unschedulable
       shell: |
