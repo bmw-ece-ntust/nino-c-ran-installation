@@ -25,7 +25,34 @@
 
 ## Table of Contents
 
+<!-- vim-markdown-toc GFM -->
 
+    * [Remote Access Methods](#remote-access-methods)
+        * [SSH](#ssh)
+    * [Action Items](#action-items)
+        * [User Provisioned](#user-provisioned)
+        * [CICD Provisioned Infra](#cicd-provisioned-infra)
+    * [System Architecture](#system-architecture)
+    * [Minimum Specification Requirements](#minimum-specification-requirements)
+        * [Master Node](#master-node)
+        * [Worker Node](#worker-node)
+    * [Installation Process](#installation-process)
+        * [Repository Structure](#repository-structure)
+        * [Master Node Setup](#master-node-setup)
+        * [Worker Node Setup](#worker-node-setup)
+    * [Table of Paramaters](#table-of-paramaters)
+        * [Inputs Parameters](#inputs-parameters)
+        * [`master_setup.sh`](#master_setupsh)
+        * [`worker_setup.sh`](#worker_setupsh)
+    * [Message Sequence Chart (MSC)](#message-sequence-chart-msc)
+        * [Human Provisioned Sequence](#human-provisioned-sequence)
+        * [CICD Pipeline Setup](#cicd-pipeline-setup)
+    * [Post-Installation Verification](#post-installation-verification)
+    * [Troubleshooting](#troubleshooting)
+        * [Common Issues and Solutions](#common-issues-and-solutions)
+    * [Additional Resources](#additional-resources)
+
+<!-- vim-markdown-toc -->
 
 ## Remote Access Methods
 
