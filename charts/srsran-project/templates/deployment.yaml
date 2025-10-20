@@ -22,8 +22,7 @@ spec:
           k8s.v1.cni.cncf.io/networks: |
             [
               {
-                "name": "{{ $.Chart.Name }}-{{ $.Values.multus.ofh.ruName }}",
-                "interface": "net_ofh",
+                "name": "{{ $.Chart.Name }}-cplane-{{ $.Values.multus.ofh.ruName }}",
                 "mac": "{{ $.Values.multus.ofh.du_mac }}"
               }
             ]
@@ -90,8 +89,10 @@ spec:
             periodSeconds: 3
           {{- end }}
           env:
+          {{- if and .Values.multus.ofh.du_mac }}
             - name: MAC_ADDRESS
               value: "{{ .Values.multus.ofh.du_mac }}"
+          {{- end }}
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -127,6 +128,7 @@ spec:
           {{- end }}
           command: [ "/bin/bash" ]
           args: [ "-c", "/etc/entrypoint/entrypoint-srsgnb.sh /etc/config/gnb-config.yml" ]
+          #args: ["sleep", "infinity"]
           volumeMounts:
             - name: entrypoint-volume-srsgnb
               mountPath: /etc/entrypoint

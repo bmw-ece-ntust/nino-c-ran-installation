@@ -13,8 +13,8 @@
 # - If a hal section exists with eal_args, replaces the CPU core list inside @(...)
 #   with the CPUs available to the container as read from cgroups (v1/v2),
 #   working for both privileged and non-privileged containers.
-# - Processes each cell in the ru_ofh section in case the SR-IOV proivder is used: 
-#   replaces the network_interface field with the corresponding BDF from 
+# - Processes each cell in the ru_ofh section in case the SR-IOV proivder is used:
+#   replaces the network_interface field with the corresponding BDF from
 #   PCIDEVICE_<RESOURCE> and updates du_mac_addr using the MAC obtained from dmesg
 #   for that BDF.
 #
@@ -54,10 +54,10 @@ update_config_paths() {
 
     local original_path
     original_path=$(echo "$first_line" | sed -E 's/^[[:space:]]*[A-Za-z0-9_]*filename:[[:space:]]*(.*)$/\1/')
-    
+
     local current_dir
     current_dir=$(dirname "$original_path")
-    
+
     local ts_candidate base_dir
     ts_candidate=$(basename "$current_dir")
     if [[ "$ts_candidate" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
@@ -69,7 +69,7 @@ update_config_paths() {
 
     local new_folder="${base_dir}/${timestamp}"
     mkdir -p "$new_folder"
-  
+
     sed -i -E "s#([[:space:]]*(filename|[A-Za-z0-9_]+_filename):[[:space:]])${base_dir}(/[0-9]{8}-[0-9]{6})?/#\1${base_dir}/${timestamp}/#g" "$config_file"
 
     # create current symlink
@@ -191,7 +191,7 @@ update_network_interfaces_and_macs() {
       else
           mac=$(dmesg | grep "$current_bdf" | grep "MAC address:" | tail -n 1 | sed -n 's/.*MAC address: \([0-9a-fA-F:]\+\).*/\1/p')
       fi
-      
+
       indent=$(echo "$line" | sed -n 's/^\([[:space:]]*\).*/\1/p')
       if [ -n "$mac" ]; then
           echo "${indent}du_mac_addr: $mac" >> "$tmpfile"
@@ -288,12 +288,14 @@ while true; do
     CURR_LOG_PATH=$(update_config_paths "$UPDATED_CONFIG")
     {
       gnb -c "$UPDATED_CONFIG" 2>&1 | tee -a "${CURR_LOG_PATH}/gnb.stdout"
+      #sleep infinity
       exit ${PIPESTATUS[0]}
     } &
   else
     echo "Calling Proper Config..."
     cat $UPDATED_CONFIG
-    gnb -c "$UPDATED_CONFIG" &
+    #gnb -c "$UPDATED_CONFIG"
+    sleep infinity
   fi
   pipe_pid=$!
   wait "$pipe_pid"

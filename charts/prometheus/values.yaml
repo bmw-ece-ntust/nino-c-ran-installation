@@ -1,6 +1,7 @@
 # prometheus-values.yaml
 prometheus:
   prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
     externalUrl: https://ocloud-bmwlab.duckdns.org/prometheus
     routePrefix: /
     retention: "15d"

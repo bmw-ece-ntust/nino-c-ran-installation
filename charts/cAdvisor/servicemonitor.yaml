@@ -1,0 +1,13 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cadvisor-standalone
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: cadvisor-standalone
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics

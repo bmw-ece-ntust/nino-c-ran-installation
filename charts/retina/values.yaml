@@ -1,0 +1,22 @@
+logLevel: info
+enablePodLevel: true
+
+apiServer:
+  host: 0.0.0.0
+  port: 10093
+
+# Use default config which includes proper metricsIntervalDuration
+# Don't override individual timing parameters
+
+operator:
+  enabled: true
+
+agent:
+  init:
+    enabled: true
+
+enabledPlugin:
+  - dropreason
+  - packetforward
+  - linuxutil
+  - dns

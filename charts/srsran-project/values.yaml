@@ -35,8 +35,8 @@ podSecurityContext: {}
 
 # securityContext for LB disabled
 securityContext:
-  capabilities:
-    add: ["SYS_NICE", "NET_ADMIN"]
+  # capabilities:
+  #   add: ["SYS_NICE", "NET_ADMIN"]
   privileged: true
 
 # securityContext for LB enabled
@@ -52,7 +52,7 @@ securityContext:
 
 # Disable hostnetwork in case you enable LB
 network:
-  hostNetwork: true
+  hostNetwork: false
 
 resources:
   enable_hugepages_1gi: true
@@ -84,7 +84,7 @@ metricsService:
 
 debugging:
   enabled: true
-  preserveOldLogs: true
+  preserveOldLogs: false
   storageCapacity: "100Mi"
   hostPath: "/mnt/debugging-logs"
   containerPath: "/tmp"
@@ -113,31 +113,41 @@ sriovConfig:
 #       port: 830
 #       outport: 830
 #       protocol: TCP
+#
+multus:
+  ofh:
+    ruName: liteon
+    enabled: true
+    sriovNetworkNamespace: sriov-network-operator
+    sriovResourceName: sriov_srsran
+    vlan: 6
+    du_mac: 00:11:22:33:44:66
 
 config:
   gnb-config.yml: |-
     cu_cp:
       amf:
-        addr: 127.0.1.100
+        addr: "open5gs-amf-ngap.5gs-cn"
         port: 38412
         bind_addr: 127.0.0.1
         supported_tracking_areas:
-          - tac: 7
+          - tac: 1
             plmn_list:
               - plmn: "00101"
                 tai_slice_support_list:
                   - sst: 1
-
     ru_ofh:
-      t1a_max_cp_dl: 535
-      t1a_min_cp_dl: 286
-      t1a_max_cp_ul: 535
-      t1a_min_cp_ul: 286
-      t1a_max_up: 390
-      t1a_min_up: 80
+      t1a_max_cp_dl: 350
+      t1a_min_cp_dl: 200
+      t1a_max_cp_ul: 350
+      t1a_min_cp_ul: 200
+      t1a_max_up: 300
+      t1a_min_up: 0 #0
       ta4_max: 500
-      ta4_min: 25
-      is_prach_cp_enabled: false
+      ta4_min: 0
+      is_prach_cp_enabled: true
+      ignore_ecpri_payload_size: false
+      ignore_ecpri_seq_id: true
       compr_method_ul: bfp
       compr_bitwidth_ul: 9
       compr_method_dl: bfp
@@ -146,42 +156,55 @@ config:
       compr_bitwidth_prach: 9
       enable_ul_static_compr_hdr: true
       enable_dl_static_compr_hdr: true
-      iq_scaling: 5.5
+      iq_scaling: 5.0
       cells:
-        - network_interface: enp1s0f0
-          ru_mac_addr: 70:b3:d5:e1:5b:06
-          du_mac_addr: 80:61:5f:0d:df:aa
-          vlan_tag_cp: 4
-          vlan_tag_up: 4
-          prach_port_id: [4, 5]
-          dl_port_id: [0, 1, 2, 3]
-          ul_port_id: [0, 1]
+        - network_interface: enp7s0 #enp59s0f0np0
+          ru_mac_addr: 00:aa:ff:bb:ff:cc
+          du_mac_addr: 00:11:22:33:44:66 #40:a6:b7:92:c4:74   # MAC address of NIC that connect with FH
+          vlan_tag_cp: 6                   # VLAN tag value for CP. Note: no need to configure VLAN on NIC
+          vlan_tag_up: 6                   # VLAN tag value for UP. Note: no need to configure VLAN on NIC
+          prach_port_id: [4, 5, 6, 7]               # eAxCID for PRACH
+          dl_port_id: [0, 1, 2, 3]               # eAxCID for DL, length of dl_port_id corresponds to nof_antennas_dl
+          ul_port_id: [0, 1, 2, 3]                  # eAxCID for UL, length of ul_port_id corresponds to nof_antennas_ul
 
     cell_cfg:
-      dl_arfcn: 637212
+      dl_arfcn: 649980
       band: 78
       channel_bandwidth_MHz: 100
       common_scs: 30
       plmn: "00101"
-      tac: 7
+      tac: 1
       pci: 1
       nof_antennas_dl: 4
-      nof_antennas_ul: 2
+      nof_antennas_ul: 4
       prach:
-        prach_config_index: 7
+        prach_config_index: 159
         prach_root_sequence_index: 1
         zero_correlation_zone: 0
-        prach_frequency_start: 0
+        prach_frequency_start: 2
+      pdsch:
+        mcs_table: qam256
+        olla_target_bler: 0.02
+      pusch:
+        mcs_table: qam64 # Due to liteon RU only support 64QAM for UL
+      ssb:
+        ssb_period: 20
       tdd_ul_dl_cfg:
-        dl_ul_tx_period: 10
-        nof_dl_slots: 7
-        nof_dl_symbols: 6
-        nof_ul_slots: 2
-        nof_ul_symbols: 4
+        dl_ul_tx_period: 5                     # Optional INT (10). Sets the TDD pattern periodicity in slots. The combination of this value and the chosen numerology must lead to a TDD periodicity of 0.5, 0.625, 1, 1.25, 2, 2.5, 3, 4, 5 or 10 milliseconds. Supported: [2 - 80].
+        nof_dl_slots: 3                         # Optional INT (6). Number of consecutive full Downlink slots. Supported: [0-80].
+        nof_dl_symbols: 6                       # Optional INT (8). Number of Downlink symbols at the beginning of the slot following full Downlink slots. Supported: [0-13].
+        nof_ul_slots: 1                         # Optional INT (3). Number of consecutive full Uplink slots. Supported: [0 - 80].
+        nof_ul_symbols: 4                       # Optional INT (0). Number of Uplink symbols at the end of the slot preceding the first full Uplink slot. Supported: [0-13].
+        pattern2:
+          dl_ul_tx_period: 5                       # Optional INT (10). Sets the TDD pattern periodicity in slots. The combination of this value and the chosen numerology must lead to a TDD periodicity of 0.5, 0.625, 1, 1.25, 2, 2.5, 3, 4, 5 or 10 milliseconds. Supported: [2 - 80].
+          nof_dl_slots: 3                           # Optional INT (6). Number of consecutive full Downlink slots. Supported: [0-80].
+          nof_dl_symbols: 6                         # Optional INT (8). Number of Downlink symbols at the beginning of the slot following full Downlink slots. Supported: [0-13]
+          nof_ul_slots: 1                           # Optional INT (3). Number of consecutive full Uplink slots. Supported: [0 - 80].
+          nof_ul_symbols: 4                         # Optional INT (0). Number of Uplink symbols at the end of the slot preceding the first full Uplink slot. Supported: [0-13].
 
     log:
       filename: /tmp/gnb.log
-      all_level: warning
+      all_level: info
 
     pcap:
       mac_enable: false
@@ -197,3 +220,6 @@ config:
       bind_addr: 0.0.0.0
       enabled: false
       port: 8001
+
+    hal:
+      eal_args: "--lcores (0-1)@(0-23)"

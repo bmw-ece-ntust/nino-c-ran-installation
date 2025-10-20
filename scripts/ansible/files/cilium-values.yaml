@@ -2,52 +2,41 @@ cni:
   exclusive: false
 sctp:
   enabled: true
-prometheus:
-  enabled: true
-  port: 9962
-  serviceMonitor:
-    enabled: true
-    labels:
-      release: prometheus
-    interval: 30s
 
-# Enable Hubble metrics (network observability)
 hubble:
   enabled: true
   ui:
     enabled: true
-  metrics:
-    enabled:
-      - dns:query;ignoreAAAA
-      - drop
-      - tcp
-      - flow
-      - icmp
-      - http
-    serviceMonitor:
-      enabled: true
-      labels:
-        release: prometheus
-      interval: 30s
   relay:
     enabled: true
-    # tls:
-    #   server:
-    #     enabled: false
     prometheus:
       enabled: true
       serviceMonitor:
         enabled: true
-        labels:
-          release: prometheus
 
-# Enable Cilium Operator metrics
-operator:
-  prometheus:
-    enabled: true
-    port: 9963
+  metrics:
     serviceMonitor:
       enabled: true
-      labels:
-        release: prometheus
-      interval: 30s
+
+    enableOpenMetrics: true
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flows-to-world
+      - port-distribution
+      - icmp
+      - "flow:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity"
+      - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction;sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity"
+
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+operator:
+  enabled: true
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true

@@ -23,40 +23,34 @@
 > **Purpose of Installation Guide:**
 > This guide focuses on setup, configuration, and getting the system running on your local environment or target deployment system.
 
-## Table of Contents
+> ## Table of Contents
+> * [Remote Access Methods](#remote-access-methods)
+>     * [SSH](#ssh)
+> * [Action Items](#action-items)
+>     * [User Provisioned](#user-provisioned)
+>     * [CICD Provisioned Infra](#cicd-provisioned-infra)
+> * [System Architecture](#system-architecture)
+> * [Minimum Specification Requirements](#minimum-specification-requirements)
+>     * [Master Node](#master-node)
+>     * [Worker Node](#worker-node)
+> * [Installation Process](#installation-process)
+>     * [Repository Structure](#repository-structure)
+>     * [Master Node Setup](#master-node-setup)
+>     * [Worker Node Setup](#worker-node-setup)
+> * [Table of Paramaters](#table-of-paramaters)
+>     * [Inputs Parameters](#inputs-parameters)
+>     * [`master_setup.sh`](#master_setupsh)
+>     * [`worker_setup.sh`](#worker_setupsh)
+> * [Message Sequence Chart (MSC)](#message-sequence-chart-msc)
+>     * [Human Provisioned Sequence](#human-provisioned-sequence)
+>     * [CICD Pipeline Setup](#cicd-pipeline-setup)
+> * [Post-Installation Verification](#post-installation-verification)
+> * [Troubleshooting](#troubleshooting)
+>     * [Common Issues and Solutions](#common-issues-and-solutions)
+> * [Additional Resources](#additional-resources)
 
-<!-- vim-markdown-toc GFM -->
-
-    * [Remote Access Methods](#remote-access-methods)
-        * [SSH](#ssh)
-    * [Action Items](#action-items)
-        * [User Provisioned](#user-provisioned)
-        * [CICD Provisioned Infra](#cicd-provisioned-infra)
-    * [System Architecture](#system-architecture)
-    * [Minimum Specification Requirements](#minimum-specification-requirements)
-        * [Master Node](#master-node)
-        * [Worker Node](#worker-node)
-    * [Installation Process](#installation-process)
-        * [Repository Structure](#repository-structure)
-        * [Master Node Setup](#master-node-setup)
-        * [Worker Node Setup](#worker-node-setup)
-    * [Table of Paramaters](#table-of-paramaters)
-        * [Inputs Parameters](#inputs-parameters)
-        * [`master_setup.sh`](#master_setupsh)
-        * [`worker_setup.sh`](#worker_setupsh)
-    * [Message Sequence Chart (MSC)](#message-sequence-chart-msc)
-        * [Human Provisioned Sequence](#human-provisioned-sequence)
-        * [CICD Pipeline Setup](#cicd-pipeline-setup)
-    * [Post-Installation Verification](#post-installation-verification)
-    * [Troubleshooting](#troubleshooting)
-        * [Common Issues and Solutions](#common-issues-and-solutions)
-    * [Additional Resources](#additional-resources)
-
-<!-- vim-markdown-toc -->
 
 ## Remote Access Methods
-
-
 
 ### SSH
 
@@ -87,9 +81,12 @@ Write your installation/integration plan & status in here:
 
 ### CICD Provisioned Infra
 
-> [!NOTE]
+> [!WARNING]
 > **TBD**
-> This implementation will proceed after the user provisioned setup is finished
+> This implementation will proceed after the user provisioned setup is finished.
+> Will migrate note from Notion
+
+
 
 ## System Architecture
 
@@ -100,6 +97,7 @@ Write your installation/integration plan & status in here:
 1. **Master Node**
    1. Cilium CNI
    2. Multus CNI
+   3. Multus Plugin SRIOV
    3. OpenEBS
 2. **Worker Node**
    1. RT Kernel
@@ -125,13 +123,12 @@ Write your installation/integration plan & status in here:
 | Component        | Requirement                            |
 | ---------------- | -------------------------------------- |
 | Operating System | Red Hat Enterprise Linux 9.0 or Higher |
-| CPU              | 2 GHz, 8-core                          |
+| CPU              | 2 GHz, 16-core                          |
 | Memory           | 32 GB RAM                              |
 | Kubernetes       | 1.28 or higher                         |
 | CRI-O            | 1.28 or higher                         |
 | HW Motherboard   | Support NUMA                           |
 | HW NIC           | Support SRIOV                          |
-
 
 
 ## Installation Process

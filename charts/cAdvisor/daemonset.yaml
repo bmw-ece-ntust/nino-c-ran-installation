@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cadvisor-standalone
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: cadvisor-standalone
+  template:
+    metadata:
+      labels:
+        app: cadvisor-standalone
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:v0.49.1
+        args:
+          - --housekeeping_interval=10s
+          - --max_housekeeping_interval=15s
+          - --event_storage_event_limit=default=0
+          - --event_storage_age_limit=default=0
+          - --docker_only=false
+          - --container_hints=/etc/cadvisor/container_hints.json
+          - --containerd=/var/run/crio/crio.sock  # Point to CRI-O socket
+          - --store_container_labels=true
+          - --whitelisted_container_labels=io.kubernetes.container.name,io.kubernetes.pod.name,io.kubernetes.pod.namespace,io.kubernetes.pod.uid
+        volumeMounts:
+        - name: rootfs
+          mountPath: /rootfs
+          readOnly: true
+        - name: var-run
+          mountPath: /var/run
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: crio
+          mountPath: /var/lib/containers
+          readOnly: true
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: 200Mi
+            cpu: 150m
+          limits:
+            memory: 400Mi
+            cpu: 300m
+      serviceAccountName: cadvisor
+      volumes:
+      - name: rootfs
+        hostPath:
+          path: /
+      - name: var-run
+        hostPath:
+          path: /var/run
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: crio
+        hostPath:
+          path: /var/lib/containers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cadvisor
+  namespace: kube-system

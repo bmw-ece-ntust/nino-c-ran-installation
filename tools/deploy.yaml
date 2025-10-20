@@ -1,0 +1,188 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ebpf-exporter-config
+  namespace: monitoring
+data:
+  config.yaml: |
+    programs:
+      - name: tcp_traffic
+        metrics:
+          counters:
+            - name: pod_network_transmit_bytes_total
+              help: Total TCP bytes transmitted
+              table: tx_bytes
+              labels:
+                - name: pid
+                  size: 4
+                  decoders:
+                    - name: uint
+            - name: pod_network_receive_bytes_total
+              help: Total TCP bytes received
+              table: rx_bytes
+              labels:
+                - name: pid
+                  size: 4
+                  decoders:
+                    - name: uint
+        kprobes:
+          tcp_sendmsg: count_tx
+          tcp_cleanup_rbuf: count_rx
+        code: |
+          #include <uapi/linux/ptrace.h>
+          #include <net/sock.h>
+
+          BPF_HASH(tx_bytes, u32, u64);
+          BPF_HASH(rx_bytes, u32, u64);
+
+          int count_tx(struct pt_regs *ctx, struct sock *sk, struct msghdr *msg, size_t size) {
+              u32 pid = bpf_get_current_pid_tgid() >> 32;
+              u64 *val, zero = 0;
+
+              val = tx_bytes.lookup_or_try_init(&pid, &zero);
+              if (val) {
+                  __sync_fetch_and_add(val, size);
+              }
+              return 0;
+          }
+
+          int count_rx(struct pt_regs *ctx, struct sock *sk, int copied) {
+              if (copied <= 0) return 0;
+
+              u32 pid = bpf_get_current_pid_tgid() >> 32;
+              u64 bytes = copied;
+              u64 *val, zero = 0;
+
+              val = rx_bytes.lookup_or_try_init(&pid, &zero);
+              if (val) {
+                  __sync_fetch_and_add(val, bytes);
+              }
+              return 0;
+          }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-bandwidth-exporter
+  namespace: monitoring
+  labels:
+    app: ebpf-bandwidth-exporter
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-bandwidth-exporter
+  template:
+    metadata:
+      labels:
+        app: ebpf-bandwidth-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9435"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      containers:
+      - name: ebpf-exporter
+        image: bmw.ece.ntust.edu.tw/infidel/ebpf-bandwidth-exporter:v1.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - --config.file=/config/config.yaml
+          - --web.listen-address=:9435
+          - --web.telemetry-path=/metrics
+        ports:
+        - containerPort: 9435
+          hostPort: 9435
+          name: metrics
+          protocol: TCP
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - IPC_LOCK
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: kernel-debug
+          mountPath: /sys/kernel/debug
+          readOnly: false
+        - name: modules
+          mountPath: /lib/modules
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: ebpf-exporter-config
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: kernel-debug
+        hostPath:
+          path: /sys/kernel/debug
+          type: Directory
+      - name: modules
+        hostPath:
+          path: /lib/modules
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebpf-bandwidth-exporter
+  namespace: monitoring
+  labels:
+    app: ebpf-bandwidth-exporter
+spec:
+  clusterIP: None
+  ports:
+  - port: 9435
+    targetPort: 9435
+    protocol: TCP
+    name: metrics
+  selector:
+    app: ebpf-bandwidth-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ebpf-bandwidth-exporter
+  namespace: monitoring
+  labels:
+    app: ebpf-bandwidth-exporter
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-bandwidth-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - monitoring

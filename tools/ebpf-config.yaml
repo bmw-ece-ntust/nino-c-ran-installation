@@ -1,0 +1,85 @@
+programs:
+  - name: network_bandwidth
+    metrics:
+      counters:
+        - name: network_transmit_bytes_total
+          help: Total bytes transmitted by pod
+          table: tx_bytes
+          labels:
+            - name: pod
+              size: 128
+              decoders:
+                - name: string
+            - name: namespace
+              size: 64
+              decoders:
+                - name: string
+        - name: network_receive_bytes_total
+          help: Total bytes received by pod
+          table: rx_bytes
+          labels:
+            - name: pod
+              size: 128
+              decoders:
+                - name: string
+            - name: namespace
+              size: 64
+              decoders:
+                - name: string
+    kprobes:
+      tcp_sendmsg: trace_tcp_sendmsg
+      tcp_cleanup_rbuf: trace_tcp_cleanup_rbuf
+    code: |
+      #include <uapi/linux/ptrace.h>
+      #include <linux/sched.h>
+      #include <net/sock.h>
+
+      struct key_t {
+          char pod[128];
+          char namespace[64];
+      };
+
+      BPF_HASH(tx_bytes, struct key_t, u64);
+      BPF_HASH(rx_bytes, struct key_t, u64);
+
+      static inline void get_cgroup_name(char *buf, int buf_size) {
+          struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+
+          // Read cgroup path from task
+          bpf_probe_read_kernel_str(buf, buf_size, task->cgroups);
+      }
+
+      int trace_tcp_sendmsg(struct pt_regs *ctx, struct sock *sk, struct msghdr *msg, size_t size) {
+          struct key_t key = {};
+
+          // Get current task cgroup info
+          bpf_get_current_comm(&key.pod, sizeof(key.pod));
+
+          u64 *val, zero = 0;
+          val = tx_bytes.lookup_or_try_init(&key, &zero);
+          if (val) {
+              __sync_fetch_and_add(val, size);
+          }
+
+          return 0;
+      }
+
+      int trace_tcp_cleanup_rbuf(struct pt_regs *ctx, struct sock *sk, int copied) {
+          if (copied <= 0) {
+              return 0;
+          }
+
+          struct key_t key = {};
+
+          // Get current task cgroup info
+          bpf_get_current_comm(&key.pod, sizeof(key.pod));
+
+          u64 bytes = (u64)copied;
+          u64 *val, zero = 0;
+          val = rx_bytes.lookup_or_try_init(&key, &zero);
+          if (val) {
+              __sync_fetch_and_add(val, bytes);
+          }
+
+          return 0;
+      }

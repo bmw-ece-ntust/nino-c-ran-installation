@@ -1,10 +1,10 @@
 apiVersion: sriovnetwork.openshift.io/v1
 kind: SriovNetworkNodePolicy
 metadata:
-  name: sriov-srsran
+  name: sriov-srsran-cplane
   namespace: sriov-network-operator
 spec:
-  resourceName: sriov_srsran
+  resourceName: sriov_srsran_uplane
   nodeSelector:
     feature.node.kubernetes.io/network-sriov.capable: "true"
   priority: 13
@@ -17,4 +17,4 @@ spec:
     pfNames:
       - 'ens7f0#4-5'
     rootDevices:
-      - '0000:ca:00.0' 
+      - '0000:ca:00.0'
