@@ -36,7 +36,7 @@ Setup → Join Cluster → Reboot to Activate RT Kernel
 
 Options:
     --master-ip IP              Kubernetes master IP
-    --join-token TOKEN          Kubernetes join token  
+    --join-token TOKEN          Kubernetes join token
     --join-hash HASH           CA cert hash
     --hugepage-size SIZE       Primary hugepage size: 2M or 1G (default: 1G)
     --hugepage-count NUM       Number of primary hugepages (default: 8)
@@ -56,15 +56,15 @@ Options:
 Examples:
     # Basic RT setup with Red Hat registration
     $0 --rh-org-id 12345 --rh-activation-key mykey123
-    
-    # Full automated worker setup  
+
+    # Full automated worker setup
     $0 --master-ip 192.168.1.100 --join-token abc123... --join-hash sha256:def456... \\
        --rh-org-id 12345 --rh-activation-key mykey123 --auto-reboot
-    
+
     # Advanced hugepages configuration
     $0 --hugepage-size 1G --hugepage-count 32 --hugepage-2m-count 1024 \\
        --housekeeping-cpus 8 --master-ip 192.168.1.100 --join-token ... --join-hash ...
-       
+
 
     # Rollback to standard configuration
     $0 --rollback
@@ -150,14 +150,14 @@ die() {
 calculate_isolated_cpus() {
     local total_cpus
     total_cpus=$(nproc)
-    
+
     if [[ $total_cpus -le $HOUSEKEEPING_CPUS ]]; then
         die "Not enough CPUs: need >$HOUSEKEEPING_CPUS, found $total_cpus"
     fi
-    
+
     local isolated_start=$HOUSEKEEPING_CPUS
     local isolated_end=$((total_cpus - 1))
-    
+
     echo "${isolated_start}-${isolated_end}"
 }
 
@@ -169,14 +169,14 @@ calculate_housekeeping_cpus() {
 # Rollback function
 perform_rollback() {
     log "INFO" "Starting system rollback to standard configuration"
-    
+
     echo "========================================="
     echo "SYSTEM ROLLBACK - Removing RT Configuration"
     echo "========================================="
 
     # Reset
     kubeadm reset --force || true
-    
+
     # Stop services
     log "INFO" "Stopping services"
     systemctl stop kubelet 2>/dev/null || true
@@ -184,24 +184,24 @@ perform_rollback() {
     systemctl stop crio containerd 2>/dev/null || true
     systemctl disable crio containerd 2>/dev/null || true
     echo "blacklist sctp" >> /etc/modprobe.d/sctp-blacklist.conf || true
-    
+
     # Reset tuned profile to default
     log "INFO" "Resetting tuned profile"
     if command -v tuned-adm &>/dev/null; then
         tuned-adm profile throughput-performance 2>/dev/null || tuned-adm off
     fi
-    
+
     # Remove custom tuned profiles
     rm -rf /etc/tuned/oai-realtime /etc/tuned/realtime-variables.conf 2>/dev/null || true
-    
+
     # Remove RT kernel packages
     log "INFO" "Removing RT kernel packages"
     dnf remove -y kernel-rt kernel-rt-core kernel-rt-modules tuned-profiles-realtime 2>/dev/null || true
-    
+
     # Remove Kubernetes and container runtime
     log "INFO" "Removing Kubernetes and container runtime"
     dnf remove -y kubelet kubeadm kubectl cri-o containerd.io 2>/dev/null || true
-    
+
     # Clean configuration files
     log "INFO" "Cleaning configuration files"
     rm -rf /etc/kubernetes /var/lib/kubelet /var/lib/crio /var/lib/containerd
@@ -209,18 +209,18 @@ perform_rollback() {
     rm -f /etc/yum.repos.d/kubernetes.repo /etc/yum.repos.d/cri-o.repo
     rm -f /etc/yum.repos.d/docker-ce.repo
     rm -f /etc/sysconfig/kubelet
-    
+
     # Clean network and system settings
     rm -f /etc/sysctl.d/k8s.conf /etc/sysctl.d/99-oai-rt.conf
     rm -f /etc/modules-load.d/k8s.conf /etc/modules-load.d/vfio.conf /etc/modules-load.d/sctp.conf
     rm -f /etc/modprobe.d/vfio.conf
     rm -f /etc/security/limits.d/99-oai-rt.conf
-    
+
     # Unmount and remove hugepages
     umount /mnt/hugepages 2>/dev/null || true
     rmdir /mnt/hugepages 2>/dev/null || true
     sed -i '/hugetlbfs/d' /etc/fstab 2>/dev/null || true
-    
+
     # Reset GRUB to remove RT parameters
     log "INFO" "Resetting GRUB configuration"
     if [[ -f /etc/default/grub.bak ]]; then
@@ -237,43 +237,43 @@ perform_rollback() {
         sed -i 's/intel_iommu=on //g; s/iommu=pt //g; s/numa=off //g; s/vfio-pci\.enable_sriov=[^ ]* //g' /etc/default/grub
         grub2-mkconfig -o /boot/grub2/grub.cfg
     fi
-    
+
     # Re-enable swap if it exists
     if grep -q "swap" /etc/fstab; then
         sed -i '/swap/s/^#//' /etc/fstab
         swapon -a 2>/dev/null || true
     fi
-    
+
     # Re-enable SELinux
     setenforce 1 2>/dev/null || true
     sed -i 's/^SELINUX=permissive$/SELINUX=enforcing/' /etc/selinux/config
-    
+
     # Re-enable firewalld
     systemctl enable --now firewalld 2>/dev/null || true
-    
+
     # Apply system defaults
     sysctl --system
 
     # Switch to standard kernel if running RT
     if [[ "$(uname -r)" == *"+rt"* ]]; then
         log "INFO" "Running RT kernel, switching default to standard"
-        
+
         local standard_kernel=$(grubby --info=ALL | grep "^kernel=" | grep -v "rt" | head -1 | cut -d'"' -f2)
-        
+
         if [[ -z "$standard_kernel" ]]; then
             dnf install -y kernel 2>/dev/null || die "No standard kernel available"
             standard_kernel=$(grubby --info=ALL | grep "^kernel=" | grep -v "rt" | head -1 | cut -d'"' -f2)
         fi
-        
+
         grubby --set-default="$standard_kernel"
         log "INFO" "Default kernel set to: $(basename $standard_kernel)"
         log "INFO" "Rebooting to standard kernel for cleanup"
         reboot
         exit 0
     fi
-    
+
     log "INFO" "Running standard kernel, proceeding with cleanup"
-    
+
     log "INFO" "Rollback completed successfully"
     echo ""
     echo "========================================="
@@ -283,7 +283,7 @@ perform_rollback() {
     echo "========================================="
 
     #reboot
-    
+
     exit 0
 }
 
@@ -291,12 +291,12 @@ perform_rollback() {
 register_system() {
     if [[ -n "$RH_ORG_ID" && -n "$RH_ACTIVATION_KEY" ]]; then
         log "INFO" "Registering system with Red Hat"
-        
+
         subscription-manager register \
             --org="$RH_ORG_ID" \
             --activationkey="$RH_ACTIVATION_KEY" \
             --force || die "Failed to register system"
-            
+
         subscription-manager attach --auto || die "Failed to attach subscriptions"
         log "INFO" "System registered successfully"
     else
@@ -306,87 +306,87 @@ register_system() {
     fi
 }
 
-# Validate prerequisites  
+# Validate prerequisites
 validate_system() {
     log "INFO" "Validating system prerequisites"
-    
+
     [[ $EUID -eq 0 ]] || die "Must run as root"
     [[ -f /etc/redhat-release ]] || die "Not a RHEL system"
-    
+
     local rhel_version
     rhel_version=$(grep -oE 'release [0-9]+\.[0-9]+' /etc/redhat-release | cut -d' ' -f2)
     [[ "${rhel_version%%.*}" -eq 9 ]] || die "Requires RHEL 9.x (found: $rhel_version)"
-    
+
     local total_cpus
     total_cpus=$(nproc)
     log "INFO" "System has $total_cpus CPUs, reserving first $HOUSEKEEPING_CPUS for K8s"
-    
+
     if [[ -n "$MASTER_IP" ]]; then
         [[ -n "$JOIN_TOKEN" && -n "$JOIN_HASH" ]] || \
             die "JOIN_TOKEN and JOIN_HASH required with MASTER_IP"
         ping -c1 "$MASTER_IP" &>/dev/null || die "Cannot reach master IP: $MASTER_IP"
     fi
-    
+
     # Validate hugepage sizes
     case "$HUGEPAGE_SIZE" in
         2M|1G) ;;
         *) die "Invalid hugepage size: $HUGEPAGE_SIZE (use 2M or 1G)" ;;
     esac
-    
+
     # Validate container runtime
     case "$CONTAINER_RUNTIME" in
         crio|containerd) ;;
         *) die "Invalid container runtime: $CONTAINER_RUNTIME (use crio or containerd)" ;;
     esac
-    
+
     log "INFO" "System validation passed"
 }
 
 # Configure RT kernel and tuned profile with enhanced parameters
 setup_realtime() {
     log "INFO" "Setting up RT kernel with enhanced performance parameters"
-    
+
     local isolated_cpus housekeeping_cpus
     isolated_cpus=$(calculate_isolated_cpus)
     housekeeping_cpus=$(calculate_housekeeping_cpus)
-    
+
     log "INFO" "CPU allocation - Housekeeping: $housekeeping_cpus, Isolated: $isolated_cpus"
-    
+
     # Backup GRUB configuration
     [[ ! -f /etc/default/grub.bak ]] && cp /etc/default/grub /etc/default/grub.bak
-    
+
     # Enable RT repository
-    subscription-manager repos --enable="rhel-9-for-$(uname -m)-rt-rpms" || 
+    subscription-manager repos --enable="rhel-9-for-$(uname -m)-rt-rpms" ||
         die "Failed to enable RT repository"
-    
+
     # Install RT packages
-    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules kernel-rt-modules-extra tuned-profiles-realtime linuxptp.x86_64 || 
+    dnf install -y kernel-rt kernel-rt-core kernel-rt-modules kernel-rt-modules-extra tuned-profiles-realtime linuxptp.x86_64 ||
         die "Failed to install RT packages"
     # Set RT kernel as default boot option
     log "INFO" "Configuring RT kernel as default boot option"
-    
+
     # Get the latest RT kernel version
     local rt_kernel_version
-    rt_kernel_version=$(rpm -q kernel-rt --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' | tail -1)
-    
+    rt_kernel_version=$(rpm -q kernel-rt --last | head -1 | awk '{print $1}' | sed 's/kernel-rt-//')
+
     if [[ -n "$rt_kernel_version" ]]; then
         # Set RT kernel as default using grubby
         grubby --set-default "/boot/vmlinuz-${rt_kernel_version}+rt" || \
             die "Failed to set RT kernel as default"
-        
+
         log "INFO" "RT kernel ${rt_kernel_version}+rt set as default boot option"
     else
         log "WARN" "Could not determine RT kernel version"
-    fi 
+    fi
 
     # Configure realtime variables
     cat > /etc/tuned/realtime-variables.conf << EOF
 # OAI gNodeB RT configuration with enhanced performance parameters
-# Housekeeping CPUs: $housekeeping_cpus (for Kubernetes)  
+# Housekeeping CPUs: $housekeeping_cpus (for Kubernetes)
 # Isolated CPUs: $isolated_cpus (for RT containers)
 isolated_cores=$isolated_cpus
 EOF
-    
+
     # Create enhanced tuned profile with all performance parameters
     mkdir -p /etc/tuned/oai-realtime
     cat > /etc/tuned/oai-realtime/tuned.conf << EOF
@@ -394,7 +394,7 @@ EOF
 summary=OAI gNodeB RT profile with maximum performance tuning
 include=realtime
 
-[bootloader]  
+[bootloader]
 # Complete RT kernel command line with all performance optimizations
 cmdline_oai=+numa=off isolcpus=managed_irq,\${isolated_cores} nohz_full=\${isolated_cores} nohz=on rcu_nocbs=\${isolated_cores} kthread_cpus=$housekeeping_cpus irqaffinity=$housekeeping_cpus rcu_nocb_poll intel_pstate=disable nosoftlockup hugepagesz=${HUGEPAGE_SIZE} hugepages=${HUGEPAGE_COUNT} hugepagesz=2M hugepages=${HUGEPAGE_2M_COUNT} default_hugepagesz=${HUGEPAGE_SIZE} mitigations=off intel_iommu=on processor.max_cstate=1 idle=poll intel_idle.max_cstate=0 iommu=pt skew_tick=1 tsc=nowatchdog nmi_watchdog=0 softlockup_panic=0 audit=0 mce=off crashkernel=auto vfio-pci.enable_sriov=1
 
@@ -416,12 +416,12 @@ kernel.hung_task_timeout_secs = 600
 
 # Memory and performance tuning
 vm.swappiness = 1
-vm.dirty_ratio = 10  
+vm.dirty_ratio = 10
 vm.dirty_background_ratio = 3
 vm.overcommit_memory = 1
 vm.zone_reclaim_mode = 0
 
-# Interrupt and timer optimizations  
+# Interrupt and timer optimizations
 kernel.timer_migration = 0
 kernel.sched_migration_cost_ns = 5000000
 
@@ -440,28 +440,28 @@ case "\$1" in
         if ! mount | grep -q "/mnt/hugepages"; then
             mount -t hugetlbfs hugetlbfs /mnt/hugepages -o pagesize=${HUGEPAGE_SIZE}
         fi
-        
+
         # Add hugepages to fstab for persistence
         if ! grep -q "hugetlbfs" /etc/fstab; then
             echo "hugetlbfs /mnt/hugepages hugetlbfs pagesize=${HUGEPAGE_SIZE} 0 0" >> /etc/fstab
         fi
-        
+
         # Set RT priority and memory limits
         if ! grep -q "rtprio" /etc/security/limits.d/99-oai-rt.conf 2>/dev/null; then
             cat > /etc/security/limits.d/99-oai-rt.conf << LIMITS
 # RT priority limits for OAI applications
 * soft rtprio 99
 * hard rtprio 99
-* soft memlock unlimited  
+* soft memlock unlimited
 * hard memlock unlimited
 * soft nice -20
 * hard nice -20
 LIMITS
         fi
-        
+
         # Configure IRQ affinity for housekeeping CPUs
         echo "$housekeeping_cpus" > /proc/irq/default_smp_affinity 2>/dev/null || true
-        
+
         # Set CPU frequency governor to performance for housekeeping CPUs
         for cpu in {0..$((HOUSEKEEPING_CPUS-1))}; do
             echo performance > /sys/devices/system/cpu/cpu\$cpu/cpufreq/scaling_governor 2>/dev/null || true
@@ -472,9 +472,9 @@ LIMITS
         ;;
 esac
 EOF
-    
+
     chmod +x /etc/tuned/oai-realtime/oai-setup.sh
-    
+
     # Activate profile
     tuned-adm profile oai-realtime
     log "INFO" "Applied oai-realtime tuned profile with enhanced RT parameters"
@@ -483,9 +483,9 @@ EOF
 # Configure VFIO kernel modules for SR-IOV support
 setup_vfio() {
     [[ "$ENABLE_VFIO" == "true" ]] || return 0
-    
+
     log "INFO" "Configuring VFIO kernel modules for SR-IOV support"
-    
+
     # Load VFIO kernel modules needed for SR-IOV
     cat > /etc/modules-load.d/vfio.conf << EOF
 # VFIO modules for SR-IOV support with enhanced configuration
@@ -519,7 +519,7 @@ EOF
 # Setup repositories with latest templates
 setup_repositories() {
     log "INFO" "Setting up container runtime and Kubernetes repositories"
-    
+
     case "$CONTAINER_RUNTIME" in
         crio)
             # Setup latest CRI-O repository
@@ -537,7 +537,7 @@ EOF
             dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
             ;;
     esac
-    
+
     # Setup latest Kubernetes repository
     cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
@@ -555,10 +555,10 @@ EOF
 # Install and configure Kubernetes
 setup_kubernetes() {
     log "INFO" "Installing and configuring Kubernetes"
-    
+
     # Setup repositories first
     setup_repositories
-    
+
     # System preparation
     log "INFO" "Preparing system for Kubernetes"
     swapoff -a
@@ -566,20 +566,20 @@ setup_kubernetes() {
     systemctl disable --now firewalld 2>/dev/null || true
     setenforce 0 2>/dev/null || true
     sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
-    
+
     # Load kernel modules
     cat > /etc/modules-load.d/k8s.conf << EOF
 overlay
-br_netfilter  
+br_netfilter
 ip_vs
 ip_vs_rr
 ip_vs_wrr
 ip_vs_sh
 nf_conntrack
 EOF
-    
+
     modprobe overlay br_netfilter sctp ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh nf_conntrack 2>/dev/null || true
-    
+
     # Enhanced sysctl configuration
     cat > /etc/sysctl.d/k8s.conf << EOF
 # Kubernetes networking
@@ -599,15 +599,15 @@ vm.max_map_count = 262144
 fs.inotify.max_user_instances = 8192
 fs.inotify.max_user_watches = 524288
 EOF
-    
+
     sysctl --system
-    
+
     # Install container runtime
     case "$CONTAINER_RUNTIME" in
         crio)
             log "INFO" "Installing CRI-O ${CRIO_VERSION}"
             dnf install -y cri-o
-            
+
             # Enhanced CRI-O configuration for RT workloads
             mkdir -p /etc/crio/crio.conf.d
             cat > /etc/crio/crio.conf.d/02-oai-rt-config.conf << EOF
@@ -633,26 +633,26 @@ cni_default_network = ""
 network_dir = "/etc/cni/net.d/"
 plugin_dirs = ["/opt/cni/bin/"]
 EOF
-            
+
             systemctl enable --now crio
             log "INFO" "CRI-O configured and started"
             ;;
         containerd)
             log "INFO" "Installing containerd"
             dnf install -y containerd.io
-            
+
             mkdir -p /etc/containerd
             containerd config default > /etc/containerd/config.toml
-            
+
             # Enhanced containerd configuration
             sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
             sed -i 's/sandbox_image = .*/sandbox_image = "registry.k8s.io\/pause:3.9"/' /etc/containerd/config.toml
-            
+
             systemctl enable --now containerd
             log "INFO" "containerd configured and started"
             ;;
     esac
-    
+
     # Install Kubernetes
     log "INFO" "Installing Kubernetes ${KUBERNETES_VERSION}"
     dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
@@ -669,25 +669,25 @@ EOF
 # Join cluster immediately (before reboot)
 join_cluster_now() {
     log "INFO" "Joining Kubernetes cluster"
-    
+
     #local isolated_cpus
     #isolated_cpus=$(calculate_isolated_cpus)
-    
+
     echo ""
     echo "=== Joining OAI gNodeB RT Worker Node ==="
     echo "Current kernel: $(uname -r)"
-    #echo "Housekeeping CPUs: $(calculate_housekeeping_cpus)" 
+    #echo "Housekeeping CPUs: $(calculate_housekeeping_cpus)"
     #echo "RT CPUs (after reboot): $isolated_cpus"
     echo "Primary hugepages (after reboot): ${HUGEPAGE_COUNT} x ${HUGEPAGE_SIZE}"
     echo "Secondary hugepages (after reboot): ${HUGEPAGE_2M_COUNT} x 2M"
     echo "Container Runtime: $CONTAINER_RUNTIME ${CRIO_VERSION}"
     echo ""
-    
+
     if kubeadm join "$MASTER_IP:6443" --token "$JOIN_TOKEN" --discovery-token-ca-cert-hash "$JOIN_HASH"; then
         echo ""
         echo "✓ Successfully joined cluster!"
         echo "Node will be fully RT-capable after reboot."
-        
+
         # Wait a moment for kubelet to start
         sleep 5
 
@@ -706,13 +706,13 @@ join_cluster_now() {
 
             log "INFO" "Node labeled and configured"
         fi
-        
+
         # Show current cluster status
         echo ""
         echo "Current cluster nodes:"
         kubectl get nodes --kubeconfig /etc/kubernetes/kubelet.conf 2>/dev/null || \
             echo "Node status will be available after kubelet initialization"
-            
+
         log "INFO" "Successfully joined Kubernetes cluster"
     else
         die "Failed to join cluster. Check connectivity and credentials."
@@ -721,11 +721,11 @@ join_cluster_now() {
 
 apply_rt_kubelet_config() {
     log "INFO" "Applying RT kubelet configuration from ansible"
-    
+
     # Count CPU
     local housekeeping_cpus
     housekeeping_cpus=$(calculate_housekeeping_cpus)
-    
+
     if [[ -f /tmp/kubelet-rt-config.yaml ]]; then
         #cp /tmp/kubelet-rt-config.yaml /var/lib/kubelet/config.yaml
         #reservedSystemCPUs: "$housekeeping_cpus"
@@ -748,10 +748,10 @@ handle_reboot() {
         log "INFO" "RT kernel disabled - no reboot required"
         return 0
     fi
-    
+
     # local isolated_cpus
     # isolated_cpus=$(calculate_isolated_cpus)
-    
+
     echo ""
     echo "========================================="
     echo "=== Setup Complete ==="
@@ -777,14 +777,14 @@ handle_reboot() {
     echo ""
     echo "RT kernel activation requires reboot."
     echo "========================================="
-    
+
 }
 
 
 # Main execution
 main() {
     parse_args "$@"
-    
+
     # Handle rollback first
     if [[ "$ROLLBACK" == "true" ]]; then
         perform_rollback
@@ -795,24 +795,24 @@ main() {
         perform_cluster_rollback
         return
     fi
-    
+
     echo ""
     echo "========================================="
     echo "OAI gNodeB Enhanced RT Worker Node Setup - RHEL 9.5"
     echo "Enhanced with maximum performance kernel parameters"
     echo "========================================="
     log "INFO" "Starting enhanced setup with CPU allocation: first $HOUSEKEEPING_CPUS CPUs for K8s, rest for RT"
-    
+
     register_system
     validate_system
-    
+
     if [[ "$ENABLE_RT" == "true" ]]; then
         setup_realtime
     fi
-    
+
     setup_vfio
     setup_kubernetes
-    
+
     # Join cluster before reboot
     if [[ -n "$MASTER_IP" ]]; then
         join_cluster_now
@@ -821,7 +821,7 @@ main() {
         echo "To join cluster later, use:"
         echo "kubeadm join <MASTER_IP>:6443 --token <TOKEN> --discovery-token-ca-cert-hash <HASH>"
     fi
-    
+
     handle_reboot
 }
 

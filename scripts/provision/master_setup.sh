@@ -225,8 +225,8 @@ install_prometheus() {
         --namespace monitoring \
         --set prometheus.prometheusSpec.retention=15d \
         --set prometheus.prometheusSpec.resources.requests.memory=2Gi \
-        --set grafana.adminPassword=admin \
-        --wait --timeout=10m
+        --set grafana.adminPassword=admin
+        #--wait --timeout=10m
 
     log "INFO" "Prometheus installed - Grafana: http://$(kubectl get nodes -o wide | awk 'NR==2{print $6}'):$(kubectl get svc -n monitoring prometheus-grafana -o jsonpath='{.spec.ports[0].nodePort}')"
 }
@@ -366,6 +366,9 @@ install() {
         log "INFO" "Configured as single-node cluster"
     fi
 
+    # Install Prometheus
+    install_prometheus
+
     # Install CNI
     log "INFO" "Installing Cilium CNI"
     curl -sL https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz | tar -xz
@@ -384,9 +387,6 @@ install() {
     kubectl apply -f https://openebs.github.io/charts/openebs-operator.yaml
     kubectl wait --for=condition=ready pod -l app=openebs -n openebs --timeout=300s || log "WARN" "OpenEBS readiness check timed out"
     kubectl patch storageclass openebs-hostpath -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
-
-    # Install Prometheus
-    install_prometheus
 
     # Install PTP
     kubectl apply -f https://raw.githubusercontent.com/bmw-ece-ntust/nino-c-ran-installation/refs/heads/main/charts/ptp-agent/daemonset.yaml
