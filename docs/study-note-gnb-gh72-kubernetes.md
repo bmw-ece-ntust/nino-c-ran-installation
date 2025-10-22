@@ -4,7 +4,79 @@ Status: In progress
 Created time: June 20, 2025 11:58 AM
 Tag: O2
 
-- ***Table of Content***
+***Table of Content***
+
+<!-- vim-markdown-toc GFM -->
+
+* [Introduction](#introduction)
+    * [OAI](#oai)
+    * [srsRAN](#srsran)
+* [Progress](#progress)
+    * [OS Setup](#os-setup)
+        * [Resource Build](#resource-build)
+        * [Cluster Config](#cluster-config)
+        * [Special Manifests](#special-manifests)
+* [Machine Details](#machine-details)
+    * [Node 1: Joule](#node-1-joule)
+    * [Node II: Newton](#node-ii-newton)
+    * [Node III: Asus Server [Pending]](#node-iii-asus-server-pending)
+* [Prerequisites](#prerequisites)
+    * [Build gNB image](#build-gnb-image)
+    * [OS Install](#os-install)
+* [Cluster Setup](#cluster-setup)
+    * [Master Node](#master-node)
+    * [Worker Node](#worker-node)
+        * [Join as Worker Node](#join-as-worker-node)
+        * [BIOS: SRIOV Setup](#bios-sriov-setup)
+        * [SRIOV Setup: Kubernetes Level](#sriov-setup-kubernetes-level)
+    * [Cluster Service:](#cluster-service)
+        * [Cluster Service: Ingress Router Kong](#cluster-service-ingress-router-kong)
+        * [Cluster Service: Prometheus Metric Logging](#cluster-service-prometheus-metric-logging)
+    * [- Credentials](#--credentials)
+        * [Cluster Service: Cilium CNI (Container Network Interface)](#cluster-service-cilium-cni-container-network-interface)
+        * [Cluster Service: Multus CNI  (Container Network Interface)](#cluster-service-multus-cni--container-network-interface)
+        * [Cluster Service: SRIOV Network Operator](#cluster-service-sriov-network-operator)
+    * [External Support](#external-support)
+        * [HAProxy](#haproxy)
+        * [ISO Host](#iso-host)
+        * [GRUB Argument](#grub-argument)
+* [O-RU Setup](#o-ru-setup)
+* [OAI  GNB Setup](#oai--gnb-setup)
+    * [Helm Chart: OAI 7.2 FH](#helm-chart-oai-72-fh)
+    * [GNB Connection with O-RU](#gnb-connection-with-o-ru)
+    * [GNB Connection with OAI CN](#gnb-connection-with-oai-cn)
+    * [CN: Setup Open5GS](#cn-setup-open5gs)
+    * [GNB: Connection to Open5GS](#gnb-connection-to-open5gs)
+    * [GNB: Vanilla Kubernetes CPU manager policy=none](#gnb-vanilla-kubernetes-cpu-manager-policynone)
+* [SRSRAN GNB](#srsran-gnb)
+* [Validation and Testing](#validation-and-testing)
+    * [Open5GS → GNB](#open5gs--gnb)
+    * [GNB → O-RU](#gnb--o-ru)
+    * [UE → 5G Network](#ue--5g-network)
+* [Hard Lessons](#hard-lessons)
+    * [Namespace Stuck on Terminating](#namespace-stuck-on-terminating)
+        * [Node Taint Loop Due to SrIOV](#node-taint-loop-due-to-sriov)
+        * [GNB:  Missing parameters on OAI configmap](#gnb--missing-parameters-on-oai-configmap)
+        * [GNB: Failure to attach on VFIO Interface due to hugepages](#gnb-failure-to-attach-on-vfio-interface-due-to-hugepages)
+    * [SRIOV: Boot Loop due to vfio-pci](#sriov-boot-loop-due-to-vfio-pci)
+    * [GNB: SCTP Transmission Failure between PODs when using default CNI](#gnb-sctp-transmission-failure-between-pods-when-using-default-cni)
+    * [GNB: MSG3 Scheduling Failure](#gnb-msg3-scheduling-failure)
+    * [UE: Attach Failure](#ue-attach-failure)
+    * [- Kubernetes allocate isolated CPUs for everyone, not only GNB](#--kubernetes-allocate-isolated-cpus-for-everyone-not-only-gnb)
+    * [UE: OAI Core Network with LiteOn RU](#ue-oai-core-network-with-liteon-ru)
+    * [Open5GS: Bitnami related images](#open5gs-bitnami-related-images)
+    * [Kubelet: CPU MAnager Policy](#kubelet-cpu-manager-policy)
+    * [GNB: Crash upon high load from UE on C3](#gnb-crash-upon-high-load-from-ue-on-c3)
+        * [**Symptomps I**](#symptomps-i)
+        * [**Symptoms II**](#symptoms-ii)
+        * [Resolultion](#resolultion)
+        * [GNB: After O-RU reboot num_bytes always wrong](#gnb-after-o-ru-reboot-num_bytes-always-wrong)
+        * [O-RU LiteON: Center Frequency](#o-ru-liteon-center-frequency)
+        * [K8S: topologyManagerPolicy](#k8s-topologymanagerpolicy)
+    * [SRSRAN: PCI SRIOV](#srsran-pci-sriov)
+
+<!-- vim-markdown-toc -->
+
 
 # Introduction
 
@@ -21,38 +93,38 @@ https://github.com/bmw-ece-ntust/nino-c-ran-installation
 Recreate the O-DU 7.2 on kubernetes environment
 
 - Original Documentation
-    
+
     [](https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/develop/doc/ORAN_FHI7.2_Tutorial.md#common)
-    
+
 - Chart: Predefined
-    
+
     [](https://gitlab.eurecom.fr/oai/orchestration/charts/-/tree/oai-gnb-fhi-72?ref_type=heads)
-    
+
 - Docker Compose: Predefined
-    
+
     [](https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/develop/ci-scripts/yaml_files/sa_fhi_7.2_vvdn_gnb/docker-compose.yml?ref_type=heads)
-    
+
 - RedHat vDU Reference Spec
-    
+
     [Chapter 3. Reference design specifications | Scalability and performance | OpenShift Container Platform | 4.14 | Red Hat Documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.14/html/scalability_and_performance/reference-design-specifications)
-    
+
 
 ## srsRAN
 
 - srsRAN gNB Documentation
-    
+
     [srsRAN gNB on Kubernetes — srsRAN Project  documentation](https://docs.srsran.com/projects/project/en/latest/tutorials/source/k8s/source/index.html)
-    
+
 
 **Special Treatments:**
 
 1. OS: Numa Allocation
-    
+
     **12vCPU Minimum Setup**
-    
+
     > *Currently the default OAI 7.2 configuration file requires isolated **CPUs 0,2,4** for DPDK/libXRAN, **CPU 6** for `ru_thread`, **CPU 8** for `L1_rx_thread` and **CPU 10** for `L1_tx_thread`. It is preferrable to have all these threads on the same socket.*
-    > 
-    
+    >
+
     | **Threads** | **Allocated CPUs** |
     | --- | --- |
     | DPDK | 0,2,4 |
@@ -61,9 +133,9 @@ Recreate the O-DU 7.2 on kubernetes environment
     | OAI `L1_tx_thread` | 10 |
     | OAI `nr-softmodem` | 1,3,5 |
     | Kernel | 7,9,11 |
-    
+
     **32vCPU Setup**
-    
+
     | **Threads** | **Allocated CPUs** |
     | --- | --- |
     | DPDK | 0,2,4 |
@@ -74,23 +146,23 @@ Recreate the O-DU 7.2 on kubernetes environment
     | Kernel | 16-31 |
 2. OS: Hugepages
     1. One NUMA Node
-        
+
         ```bash
-         default_hugepagesz=1GB hugepagesz=1G hugepages=20 
+         default_hugepagesz=1GB hugepagesz=1G hugepages=20
         ```
-        
+
     2. Two NUMA Node
-        
+
         ```bash
         hugepagesz=1G hugepages=40 hugepagesz=2M hugepages=0
         ```
-        
+
 3. OS: DPDK or Kubernetes:DPDK
     - Setup on OS then utilize from Kubernetes
     - Setup on Kubernetes ?
 4. OS:PTP or Kubernetes:PTP
     1. `/etc/ptp4l.conf`
-        
+
         ```bash
         #/etc/ptp4l.conf
         [global]
@@ -101,54 +173,54 @@ Recreate the O-DU 7.2 on kubernetes environment
         logging_level           6
         summary_interval        0
         #priority1               127
-        
+
         [your_PTP_ENABLED_NIC]
         network_transport       L2
         hybrid_e2e              0
         ```
-        
+
     2. `/etc/sysconfig/pc2sys`
-        
+
         ```bash
         OPTIONS="-a -r -r -n 24"
         ```
-        
+
     3. Service → Could be handled by  kubernetes
-        
+
         `/usr/lib/systemd/system/phc2sys.service`
-        
+
         ```bash
         [Unit]
         Description=Precision Time Protocol (PTP) service
         After=network-online.target
         Wants=network-online.target
-        
+
         [Service]
         Type=simple
         EnvironmentFile=-/etc/sysconfig/ptp4l
         ExecStart=/usr/sbin/ptp4l $OPTIONS
-        
+
         [Install]
         WantedBy=multi-user.target
-        
+
         ```
-        
+
         `/usr/lib/systemd/system/phc2sys.service`
-        
+
         ```bash
         [Unit]
         Description=Synchronize system clock or PTP hardware clock (PHC)
         After=ntpdate.service ptp4l.service
-        
+
         [Service]
         Type=simple
         EnvironmentFile=-/etc/sysconfig/phc2sys
         ExecStart=/usr/sbin/phc2sys $OPTIONS
-        
+
         [Install]
         WantedBy=multi-user.target
         ```
-        
+
 5. Kubernetes: CPU Allocation
     1. CPU Allocation and lock contention
     2. System Admin POD
@@ -157,62 +229,62 @@ Recreate the O-DU 7.2 on kubernetes environment
         - DPDK binary
         - ORAN OSC FH Patch (Rel. E & F)
         - Build Directly using official Dockerfile
-            
+
             [](https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/develop/docker/Dockerfile.gNB.fhi72.ubuntu22?ref_type=heads)
-            
+
         - Pull official image
-            
+
             ```bash
             docker pull oaisoftwarealliance/oai-gnb-fhi72:2025.w23
             ```
-            
+
     2. Jenkins Setup
-        
+
         <aside>
         💡
-        
+
         Enable `codeready` subscription on jenkins node (RHEL 8.9)
-        
+
         ```bash
         subscription-manager repos --enable codeready-builder-for-rhel-8-$(arch)-rpms
         sudo dnf install meson ninja-build
         sudo dnf group install "Development Tools"
         ```
-        
+
         </aside>
-        
+
     3. Build Steps: Freestyle Mode
-        
+
         ```bash
         export REGISTRY=quay.bmw.lab
         export QUAY_USER=infidel
         export QUAY_REPO=$REGISTRY/$QUAY_USER
-        
+
         export NAME_BASE=ran-base
         export NAME_BUILD=ran-build-fhi72
         export NAME_GNB=oai-gnb-fhi72
         export TAG=latest
-        
+
         #NAME
         #export NAME=$NAME_BUILD
         # Login
         podman login --tls-verify=false -u="infidel+bmw_jenkins_00" -p="4W7AYC8O9NMIVZYRD4Y77986PANLRPQROPU4H8CHU1CIR3JABIP9NPX4OOM7GNF3" $REGISTRY
         # Build oai-base
         podman build -t $NAME_BASE -f docker/Dockerfile.base.ubuntu22 .
-        
+
         # BUILD oai-build
         podman build -t $NAME_BUILD -f docker/Dockerfile.build.fhi72.ubuntu22  .
         podman tag $NAME_BUILD $QUAY_REPO/$NAME_BUILD:$TAG
         #podman push --tls-verify=false $QUAY_REPO/$NAME:$TAG
-        
+
         #Build oai-gnb
         podman build -t $NAME_BUILD -f docker/Dockerfile.gNB.fhi72.ubuntu22 .
         podman tag $NAME_BUILD $QUAY_REPO/$NAME:$TAG
         podman push --tls-verify=false $QUAY_REPO/$NAME_GNB:$TAG
         podman system prune -f
-        
+
         ```
-        
+
 
 # Progress
 
@@ -232,7 +304,7 @@ Recreate the O-DU 7.2 on kubernetes environment
     1. Branch: `2025.w25`
     2. Build:  `docker/Dockerfile.build.fhi72.ubuntu22`
     3. gNB: `docker/Dockerfile.gNB.fhi72.ubuntu22`
-2. 
+2.
 
 ### Cluster Config
 
@@ -243,7 +315,7 @@ Recreate the O-DU 7.2 on kubernetes environment
 ## Node 1: Joule
 
 > Dell R750
-> 
+>
 
 |  | IP | Username | Password |
 | --- | --- | --- | --- |
@@ -259,7 +331,7 @@ Supermicro 829-9
 | BMC | 192.168.10.88 | ADMIN | ADMIN |
 | OS | 192.168.8.53 | infidel | ***** |
 
- 
+
 
 **Enable IPMI Features: Virtual Media, RAID, etc.**
 
@@ -268,10 +340,10 @@ You need to activate your supermicro server using your license token to use addi
 ```bash
 # Derive against your BMC Mac Address
 ./supermicro-ipmi-key AC:1F:6B:04:C0:63
-00ce 8e4f f566 f576 3cb4 3e90 
+00ce 8e4f f566 f576 3cb4 3e90
 ```
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image.png)
+![image.png](study-note-gnb-gh72-kubernetes/image.png)
 
 ## Node III: Asus Server [Pending]
 
@@ -303,9 +375,9 @@ docker build --target oai-gnb-fhi72 --tag oai-gnb-fhi72:latest --file docker/Doc
 
 - I assume the reader have knowledge to install RedHat OS on baremetal server or VMs.
 - If you don’t, read this for manual installation
-    
+
     [Chapter 4. Quick Installation Guide | Installation Guide | Red Hat Enterprise Linux | 7 | Red Hat Documentation](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/installation_guide/chap-simple-install)
-    
+
 
 # Cluster Setup
 
@@ -377,12 +449,12 @@ sudo echo -e "net.bridge.bridge-nf-call-iptables = 1\nnet.ipv4.ip_forward = 1\nn
 ```yaml
 
 kubeadm join 192.168.8.114:6443 --token 78ipje.lld4qsmn2ug1tqlz \
-	--discovery-token-ca-cert-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0 
+	--discovery-token-ca-cert-hash sha256:754e8c8c8dad70dcc24cc06642003f57f9e804714eeb1cdd5f7081a8b2c265d0
 ```
 
 ### BIOS: SRIOV Setup
 
-**Bug:** Cannot Allocate memory 
+**Bug:** Cannot Allocate memory
 
 ```bash
 $ sudo sh -c 'echo 2 > /sys/class/net/ens7f0/device/sriov_numvfs'
@@ -391,22 +463,22 @@ sh: line 1: echo: write error: Cannot allocate memory
 
 **Resolution:**
 
-Enable SRIOV from integrated BIOS setting in iDRAC 
+Enable SRIOV from integrated BIOS setting in iDRAC
 `iDRAC -> Configuration -> BIOS Settings -> Integrated Devices -> SR-IOV Global Enable = ENABLED`
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%201.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%201.png)
 
 ### SRIOV Setup: Kubernetes Level
 
 1. Install sriov-network-operator
     1. Install sriov-network-operator, i.e. using helm chart
-        
+
         ```bash
         helm install -n sriov-network-operator --create-namespace --version 1.5.0 --set sriovOperatorConfig.deploy=true sriov-network-operator oci://ghcr.io/k8snetworkplumbingwg/sriov-network-operator-chart
         ```
-        
+
     2. Update your sriovoperatorconfig to allow daemon and device-plugin as the following.
-        
+
         ```bash
         apiVersion: sriovnetwork.openshift.io/v1
         kind: SriovOperatorConfig
@@ -432,16 +504,16 @@ Enable SRIOV from integrated BIOS setting in iDRAC
           enableOperatorWebhook: false
           logLevel: 2
         ```
-        
+
         <aside>
         ⚠️
-        
+
         Always make sure you install sriov network operator with config-daemon and device-plugin. Otherwise you can not interact with your NIC.
-        
+
         </aside>
-        
+
     3. Make sure you have the necessary pods
-        
+
         ```bash
         $ kubectl get pods -n sriov-network-operator
         NAME                                      READY   STATUS    RESTARTS   AGE
@@ -449,17 +521,17 @@ Enable SRIOV from integrated BIOS setting in iDRAC
         sriov-network-config-daemon-2tgdc         1/1     Running   0          6m42s
         sriov-network-operator-6cd7fff6fc-flzgp   1/1     Running   0          7m57s
         ```
-        
+
 2. Tag the target node with sriov.capable label
-    
+
     ```bash
     kubectl label node <node-name> feature.node.kubernetes.io/network-sriov.capable=true
     kubectl label node <node-name> node-role.kubernetes.io/worker=worker
     ```
-    
+
 3. Create `SriovNetworkNodePolicy` and define your need there
     1. Generic Purpose Example
-        
+
         ```bash
         apiVersion: sriovnetwork.openshift.io/v1
         kind: SriovNetworkNodePolicy
@@ -482,15 +554,15 @@ Enable SRIOV from integrated BIOS setting in iDRAC
           numVfs: 4
           priority: 11
           resourceName: REOURCE_NAME_U_PLANE
-          
+
         ```
-        
+
     2. OAI 72
-        
+
         ```bash
         apiVersion: sriovnetwork.openshift.io/v1
         kind: SriovNetworkNodePolicy
-        metadata:      
+        metadata:
           name: RESOURCE_NAME_U_PLANE
           namespace: sriov-network-operator
         spec:
@@ -505,13 +577,13 @@ Enable SRIOV from integrated BIOS setting in iDRAC
           linkType: eth
           nicSelector:
             pfNames:
-              - 'ens7f0#0-1'     
+              - 'ens7f0#0-1'
             rootDevices:
               - '0000:ca:00.0'
         ---
         apiVersion: sriovnetwork.openshift.io/v1
         kind: SriovNetworkNodePolicy
-        metadata:      
+        metadata:
           name: RESOURCE_NAME_C_PLANE
           namespace: sriov-network-operator
         spec:
@@ -526,11 +598,11 @@ Enable SRIOV from integrated BIOS setting in iDRAC
           linkType: eth
           nicSelector:
             pfNames:
-              - 'ens7f0#2-3'   
+              - 'ens7f0#2-3'
             rootDevices:
               - '0000:ca:00.0'
         ```
-        
+
     3. …
 
 ## Cluster Service:
@@ -538,14 +610,14 @@ Enable SRIOV from integrated BIOS setting in iDRAC
 ### Cluster Service: Ingress Router Kong
 
 1. Upload TLS certificate
-2. 
+2.
 
 ### Cluster Service: Prometheus Metric Logging
 
 <aside>
 ⚠️
 
-External Links: 
+External Links:
 
 [Grafana](https://ocloud-bmwlab.duckdns.org/grafana/public-dashboards/b8142df0165147aca42951f763561d49)
 
@@ -554,9 +626,9 @@ External Links:
 Prometheus
 
 - Access
-    - 
+    -
 - Credentials
-- 
+-
 
 ### Cluster Service: Cilium CNI (Container Network Interface)
 
@@ -577,10 +649,10 @@ Prometheus
 Setup simple `nginx` server to store our installation ISO for remote installation via IPMI
 
 1. Create docker-compose.yaml
-    
+
     ```yaml
     version: '3'
-    
+
     services:
       nginx-iso:
         image: docker.io/nginx:alpine
@@ -591,18 +663,18 @@ Setup simple `nginx` server to store our installation ISO for remote installatio
           - ./nginx-iso/isos:/usr/share/nginx/html/isos:Z
         restart: unless-stopped
     ```
-    
+
 2. Put the iso files under `nginx-iso/isos/`
 3. CoreOS Related
     1. Create user level `systemd` service for it
-        
+
         ```bash
-        #  ~/.config/systemd/user/iso-hosts.service 
+        #  ~/.config/systemd/user/iso-hosts.service
         [Unit]
         Description=Nginx Iso Host
         Wants=network-online.target
         After=network-online.target
-        
+
         [Service]
         Type=exec
         Restart=always
@@ -613,28 +685,28 @@ Setup simple `nginx` server to store our installation ISO for remote installatio
         ExecStart=podman-compose -f /var/home/core/iso-hosts/docker-compose.yaml up -d --force-recreate
         ExecStop=podman-compose -f /var/home/core/iso-hosts/docker-compose.yaml down
         KillMode=process
-        
+
         #/var/home/core/gitea
         #/usr/bin/podman-compose
-        
+
         [Install]
         WantedBy=multi-user.target
         ```
-        
+
     2. Enable on start-up
-        
+
         ```bash
         systemctl --user enable iso-hosts
         systemctl --user start iso-hosts
         ```
-        
+
     3. …
 4. Verify your iso hostts
-    
+
     ```yaml
      curl http://192.168.8.75:3001/isos/
     ```
-    
+
 
 ### GRUB Argument
 
@@ -732,7 +804,7 @@ prach eAxC-id port 0, 1, 2, 3 = 0x0004, 0x0005, 0x0006, 0x0007
 slotid = 0x00000001
 jumboframe = 0x00000001
 sync source : PTP
-# 
+#
 ```
 
 # OAI  GNB Setup
@@ -763,7 +835,7 @@ sync source : PTP
 | @IO_CORE@ | 🚫 | Allocate By System |
 | @WORKER_CORE_LIST@ | 🚫 | Allocate By System |
 - Entry Point Args
-    
+
     ```toml
      args:
      -  CONF='/opt/oai-gnb/etc/gnb.conf';
@@ -789,11 +861,11 @@ sync source : PTP
       - infinity
     {{- end}}
     ```
-    
+
 - ConfigMap Template
     - Inconsistent value reference
     - *Dump*
-        
+
         ```toml
         ---
         #https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/develop/targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-benetel650.conf?ref_type=heads
@@ -812,16 +884,16 @@ sync source : PTP
                 ////////// Identification parameters:
                 gNB_ID    =  0xe12;
                 gNB_name  =  "{{ .Values.config.gnbName }}";
-        
+
                 // Tracking area code, 0x0000 and 0xfffe are reserved values
                 tracking_area_code  = {{ .Values.config.tac}} ;
                 plmn_list = ({ mcc = {{ .Values.config.mcc}}; mnc = {{ .Values.config.mnc}}; mnc_length = 2; snssaiList = ({ sst = {{ .Values.config.sst}} }) });
-        
+
                 nr_cellid = 1;
-        
+
                 ////////// Physical parameters:
-        
-                pdsch_AntennaPorts_XP = 2; 
+
+                pdsch_AntennaPorts_XP = 2;
                 pdsch_AntennaPorts_N1 = 2;
                 maxMIMO_layers        = 2;
                 pusch_AntennaPorts    = 4;
@@ -829,18 +901,18 @@ sync source : PTP
                 do_SRS                = 0 ;
                 sib1_tda        = 15;
                 #force_UL256qam_off    = 1;
-        
+
                 pdcch_ConfigSIB1 = (
                   {
                     controlResourceSetZero = 11;
                     searchSpaceZero = 0;
                   }
                 );
-        
+
                 servingCellConfigCommon = (
                 {
              #spCellConfigCommon
-        
+
                   physCellId                                                    = 0;
                  # n_TimingAdvanceOffset                                         = 0;
             #  downlinkConfigCommon
@@ -866,7 +938,7 @@ sync source : PTP
                   #pdcch-ConfigCommon
                     initialDLBWPcontrolResourceSetZero                          = 11;
                     initialDLBWPsearchSpaceZero                                 = 0;
-        
+
               #uplinkConfigCommon
                  #frequencyInfoUL
                   ul_frequencyBand                                              = 78;
@@ -919,11 +991,11 @@ sync source : PTP
             # restrictedSetConfig
             # 0=unrestricted, 1=restricted type A, 2=restricted type B
                     restrictedSetConfig                                         = 0,
-        
+
             # this is the offset between the last PRACH preamble power and the Msg3 PUSCH, 2 times the field value in dB
                     msg3_DeltaPreamble                                          = 2;
                     p0_NominalWithGrant                                         = -96;
-        
+
             # pucch-ConfigCommon setup :
             # pucchGroupHopping
             # 0 = neither, 1= group hopping, 2=sequence hopping
@@ -934,19 +1006,19 @@ sync source : PTP
             # 1=short, 2=medium, 3=long
                   ssb_PositionsInBurst_PR                                       = 2;
                   ssb_PositionsInBurst_Bitmap                                   = 0x1;
-        
+
             # ssb_periodicityServingCell
             # 0 = ms5, 1=ms10, 2=ms20, 3=ms40, 4=ms80, 5=ms160, 6=spare2, 7=spare1
                   ssb_periodicityServingCell                                    = 2;
-        
+
             # dmrs_TypeA_position
             # 0 = pos2, 1 = pos3
                   dmrs_TypeA_Position                                           = 0;
-        
+
             # subcarrierSpacing
             # 0=kHz15, 1=kHz30, 2=kHz60, 3=kHz120
                   subcarrierSpacing                                             = 1;
-        
+
               #tdd-UL-DL-ConfigurationCommon
             # subcarrierSpacing
             # 0=kHz15, 1=kHz30, 2=kHz60, 3=kHz120
@@ -959,12 +1031,12 @@ sync source : PTP
                   nrofDownlinkSymbols                                           = 6;
                   nrofUplinkSlots                                               = 2;
                   nrofUplinkSymbols                                             = 4;
-        
+
               ssPBCH_BlockPower                                                 = 10;
               }
-        
+
               );
-        
+
                 # ------- SCTP definitions
                 SCTP :
                 {
@@ -972,10 +1044,10 @@ sync source : PTP
                     SCTP_INSTREAMS  = 2;
                     SCTP_OUTSTREAMS = 2;
                 };
-        
+
                 ////////// AMF parameters:
                 amf_ip_address = ({ ipv4 = "@AMF_IP_ADDRESS@"; });
-        
+
                 NETWORK_INTERFACES :
                 {
                     GNB_IPV4_ADDRESS_FOR_NG_AMF              = "@N2_IP_ADDRESS@";
@@ -984,7 +1056,7 @@ sync source : PTP
                 };
               }
             );
-        
+
             MACRLCs = (
             {
               num_cc                      = 1;
@@ -993,13 +1065,13 @@ sync source : PTP
               pusch_TargetSNRx10          = 230;
               pucch_TargetSNRx10          = 230;
               dl_bler_target_upper=.35;
-              dl_bler_target_lower=.15; 
+              dl_bler_target_lower=.15;
               ul_bler_target_upper=.35;
               ul_bler_target_lower=.15;
               pusch_FailureThres          = 100;
             }
             );
-        
+
             L1s = (
             {
               num_cc = 1;
@@ -1014,7 +1086,7 @@ sync source : PTP
               phase_compensation = 0; # needs to match O-RU configuration
             }
             );
-        
+
             RUs = (
             {
               local_rf       = "no";
@@ -1035,24 +1107,24 @@ sync source : PTP
               do_precoding = 0; # needs to match O-RU configuration
             }
             );
-        
+
             security = {
               # preferred ciphering algorithms
               # the first one of the list that an UE supports in chosen
               # valid values: nea0, nea1, nea2, nea3
               ciphering_algorithms = ( "nea0" );
-        
+
               # preferred integrity algorithms
               # the first one of the list that an UE supports in chosen
               # valid values: nia0, nia1, nia2, nia3
               integrity_algorithms = ( "nia2", "nia0" );
-        
+
               # setting 'drb_ciphering' to "no" disables ciphering for DRBs, no matter
               # what 'ciphering_algorithms' configures; same thing for 'drb_integrity'
               drb_ciphering = "yes";
               drb_integrity = "no";
             };
-        
+
             log_config :
             {
               global_log_level                      ="info";
@@ -1065,7 +1137,7 @@ sync source : PTP
               ngap_log_level                        ="info";
               f1ap_log_level                        ="info";
             };
-        
+
             fhi_72 = {
               dpdk_devices = ("@C_PLANE_PCI_ADD@", "@U_PLANE_PCI_ADD@");
               system_core = @SYSTEM_CORE@;
@@ -1095,41 +1167,41 @@ sync source : PTP
                 };
               });
             };
-        
+
         ```
-        
+
 
 ## GNB Connection with O-RU
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%202.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%202.png)
 
 ## GNB Connection with OAI CN
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%203.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%203.png)
 
 ## CN: Setup Open5GS
 
 1. Clone repository from gradiant
-2. Go to `charts/open5gs` move values-5g.yaml to values.yaml 
+2. Go to `charts/open5gs` move values-5g.yaml to values.yaml
 3. Perform `helm dependency build` to enable changes and install dependencies
 4. Install Open5GS chart
-    
+
     ```yaml
     helm upgrade --instal open5gs -n 5gs-cn .
     ```
-    
+
 5. Wait until all of the important pods are running properly
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%204.png)
-    
-6. Expose webui via kube-proxy from your workstation with GUI, then access the proxy address. 
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%204.png)
+
+6. Expose webui via kube-proxy from your workstation with GUI, then access the proxy address.
     1. If you are using k9s, just press ctrl+f at open5gs-webui container.
     2. If you are using kubectl run the following command
-        
+
         ```yaml
         kubectl port-forward open5gs-webui-xxxx -n 5gs-cn 9999:9999
         ```
-        
+
     3. Open your browser with address `http://localhost:9999`
         1. Username: `admin` ; Password: `1423`
 
@@ -1137,13 +1209,13 @@ sync source : PTP
 
 1. Update amf-host at values.yaml into proper FQDN of the open5gs amf
     1. i.e. `amf_host: open5gs.5gs-cn`
-2. Update 
+2. Update
 
 ## GNB: Vanilla Kubernetes CPU manager policy=none
 
 1. By default the cpu manager policy of kubernetes is none this way we can’t allocate individual threads that we already isolated from grub towards container.
-2. Apply CPU manager policy 
-    
+2. Apply CPU manager policy
+
     ```yaml
     #/var/lib/kubelet/config.yaml
     ...
@@ -1153,7 +1225,7 @@ sync source : PTP
     kubeReserved:
       cpu: 2000m
     ```
-    
+
 3. Validate binding works from container
     1. Check allowed effective CPUs on container `cat /sys/fs/cgroup/cpuset.cpus.effective`
         1. If it shows the whole CPU of your machine i.e. 0-31, that means the setting is not properly configured yet
@@ -1163,7 +1235,7 @@ sync source : PTP
 <aside>
 💡
 
-Ref: 
+Ref:
 
 [](https://github.com/bmw-ece-ntust/johnson_note/blob/master/Integration/_Integrate%20srsRAN%20and%20Foxconn%20RPQN%20O-RU.md)
 
@@ -1171,18 +1243,18 @@ Ref:
 
 1. Helm repo add SRSRAN
 2. Clone srsran project
-    
+
     ```jsx
         git clone --depth 1 --no-checkout <repository_URL> <local_directory_name>
     ```
-    
+
 
 **Chart Enhancment**
 
 1. Multus: No control over VF, cant set MAC and VLAN
-    
+
     I add the multus definition under template
-    
+
     ```toml
     apiVersion: sriovnetwork.openshift.io/v1
     kind: SriovNetwork
@@ -1196,11 +1268,11 @@ Ref:
       spoofChk: "off"
       trust: "on"
       capabilities: '{ "mac": true }'
-    
+
     ```
-    
+
     Update the values.yaml to accomodate the multus related paramaters
-    
+
     ```toml
     multus:
       ofh:
@@ -1212,11 +1284,11 @@ Ref:
         infterface_name: net_ofh
         du_mac: 00:11:22:33:44:66
     ```
-    
+
 2. Inject multus template from OAI
-    
+
     Pod Annotations
-    
+
     ```toml
     {
         "name": "gnb-fh72-liteon/oai-gnb-liteon--uplane",z
@@ -1233,9 +1305,9 @@ Ref:
         }
     }
     ```
-    
+
 3. Clunky `entrypoint.sh`, it fetch the MAC address from dmesg rendering the update made by multus unusable.
-    
+
     ```toml
       while IFS= read -r line || [ -n "$line" ]; do
         if echo "$line" | grep -qE "^[[:space:]]*-[[:space:]]*network_interface:" && [ $counter -lt ${#bdf_array[@]} ]; then
@@ -1258,29 +1330,29 @@ Ref:
           echo "$line" >> "$tmpfile"
         fi
       done < "$config_file"
-    
+
     ```
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%205.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%205.png)
+
 4. FH Setup State
     - Pod can bind correct VFIO interface now
-        
-        ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%206.png)
-        
+
+        ![image.png](study-note-gnb-gh72-kubernetes/image%206.png)
+
     - SRIOV Traffic shows that GNB try to sent data to O-RU
-        
+
         O-Cloud → https://ocloud-bmwlab.duckdns.org/grafana/d/sriov-cluster-monitoring/sr-iov-cluster-wide-monitoring?orgId=1&from=now-1h&to=now&timezone=browser&refresh=10s
-        
-        ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%207.png)
-        
+
+        ![image.png](study-note-gnb-gh72-kubernetes/image%207.png)
+
     - Confirmed by the GNB log
-        
-        ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%208.png)
-        
+
+        ![image.png](study-note-gnb-gh72-kubernetes/image%208.png)
+
     - Couldn’t sync with O-RU due to wrong config?
         - Current Config (Some components will be updated by entrypoint when container is created)
-            
+
             ```jsx
                 cu_cp:
                   amf:
@@ -1321,7 +1393,7 @@ Ref:
                       prach_port_id: [4, 5]
                       dl_port_id: [0, 1, 2, 3]
                       ul_port_id: [0, 1]
-            
+
                 cell_cfg:
                   dl_arfcn: 649980
                   band: 78
@@ -1343,48 +1415,48 @@ Ref:
                     nof_dl_symbols: 6
                     nof_ul_slots: 2
                     nof_ul_symbols: 4
-            
+
                 log:
                   filename: /tmp/gnb.log
                   all_level: debug
                   config_level: debug
-            
+
                 pcap:
                   mac_enable: false
                   mac_filename: /tmp/gnb_mac.pcap
                   ngap_enable: false
                   ngap_filename: /tmp/gnb_ngap.pcap
-            
+
                 hal:
                   eal_args: "--lcores (0-1)@(0-23)"
             ```
-            
+
 5. ToDo:
     - [ ]  Find SRSRAN Config for liteON  and Foxconn 4T4R
         - Official guide is for 2T1R
-    - [ ]  
+    - [ ]
 
 # Validation and Testing
 
 ## Open5GS → GNB
 
 1. NGSetup
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%209.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%209.png)
+
 2. AMF Log
-    
+
     ```yaml
     │ 09/30 15:43:48.988: [amf] INFO: [Removed] Number of gNB-UEs is now 0 (../src/amf/context.c:2792)                                                                                          │
     │ 09/30 15:43:48.988: [amf] INFO: [Removed] Number of gNBs is now 0 (../src/amf/context.c:1301)                                                                                             │
     │ 09/30 15:43:59.977: [amf] INFO: gNB-N2 accepted[10.0.6.105]:36800 in ng-path module (../src/amf/ngap-sctp.c:113)                                                                          │
     │ 09/30 15:43:59.977: [amf] INFO: gNB-N2 accepted[10.0.6.105] in master_sm module (../src/amf/amf-sm.c:813)                                                                                 │
     │ 09/30 15:43:59.984: [amf] INFO: [Added] Number of gNBs is now 1 (../src/amf/context.c:1273)                                                                                               │
-    │ 09/30 15:43:59.984: [amf] INFO: gNB-N2[10.0.6.105] max_num_of_ostreams : 2 (../src/amf/amf-sm.c:860) 
+    │ 09/30 15:43:59.984: [amf] INFO: gNB-N2[10.0.6.105] max_num_of_ostreams : 2 (../src/amf/amf-sm.c:860)
     ```
-    
+
 3. GNB Log
-    
+
     ```yaml
     ...
     86255.210807 [NR_PHY] I [o-du 0][rx 12558236 pps   86016 kbps 3558666][tx 18613364 pps  127488 kbps 4717971][Total Msgs_Rcvd 12558236]
@@ -1393,45 +1465,45 @@ Ref:
     86255.210817 [NR_PHY] I [o_du0][pusch2 2691038 prach2  448512]
     86255.210818 [NR_PHY] I [o_du0][pusch3 2691052 prach3  448512]
     86256.488318 [NR_MAC] I Frame.Slot 384.0
-    
+
     86256.490809 [NR_PHY] I [o-du 0][rx 12644252 pps   86016 kbps 3558482][tx 18740852 pps  127488 kbps 4717971][Total Msgs_Rcvd 12644252]
     86256.490818 [NR_PHY] I [o_du0][pusch0 2709478 prach0  451584]
     86256.490819 [NR_PHY] I [o_du0][pusch1 2709484 prach1  451584]
     86256.490821 [NR_PHY] I [o_du0][pusch2 2709470 prach2  451584]
     86256.490822 [NR_PHY] I [o_du0][pusch3 2709484 prach3  451584]
     86257.768321 [NR_MAC] I Frame.Slot 512.0
-    
+
     86257.770812 [NR_PHY] I [o-du 0][rx 12730266 pps   86014 kbps 3558482][tx 18868340 pps  127488 kbps 4717971][Total Msgs_Rcvd 12730266]
     86257.770820 [NR_PHY] I [o_du0][pusch0 2727910 prach0  454656]
     86257.770821 [NR_PHY] I [o_du0][pusch1 2727914 prach1  454656]
     86257.770832 [NR_PHY] I [o_du0][pusch2 2727902 prach2  454656]
     86257.770833 [NR_PHY] I [o_du0][pusch3 2727916 prach3  454656]
-    
+
     ```
-    
+
     <aside>
     ⚠️
-    
+
     Pusch and Prach values need to be uniformed on different slot, if its not you have sync problem on fronthaul that can be caused by improper PTP setup, failure to isolate CPU or bad NIC
-    
+
     </aside>
-    
+
 
 ## GNB → O-RU
 
 1. O-RU Status
-    
+
     ```yaml
-    # show oru-status 
+    # show oru-status
     Sync State  : SYNCHRONIZED
     RF State    : Ready
     DPD         : Ready
     DuConnected : Ready
-    # 
+    #
     ```
-    
+
 2. GNB Log
-    
+
     ```yaml
     ...
     86255.210807 [NR_PHY] I [o-du 0][rx 12558236 pps   86016 kbps 3558666][tx 18613364 pps  127488 kbps 4717971][Total Msgs_Rcvd 12558236]
@@ -1440,39 +1512,39 @@ Ref:
     86255.210817 [NR_PHY] I [o_du0][pusch2 2691038 prach2  448512]
     86255.210818 [NR_PHY] I [o_du0][pusch3 2691052 prach3  448512]
     86256.488318 [NR_MAC] I Frame.Slot 384.0
-    
+
     86256.490809 [NR_PHY] I [o-du 0][rx 12644252 pps   86016 kbps 3558482][tx 18740852 pps  127488 kbps 4717971][Total Msgs_Rcvd 12644252]
     86256.490818 [NR_PHY] I [o_du0][pusch0 2709478 prach0  451584]
     86256.490819 [NR_PHY] I [o_du0][pusch1 2709484 prach1  451584]
     86256.490821 [NR_PHY] I [o_du0][pusch2 2709470 prach2  451584]
     86256.490822 [NR_PHY] I [o_du0][pusch3 2709484 prach3  451584]
     86257.768321 [NR_MAC] I Frame.Slot 512.0
-    
+
     86257.770812 [NR_PHY] I [o-du 0][rx 12730266 pps   86014 kbps 3558482][tx 18868340 pps  127488 kbps 4717971][Total Msgs_Rcvd 12730266]
     86257.770820 [NR_PHY] I [o_du0][pusch0 2727910 prach0  454656]
     86257.770821 [NR_PHY] I [o_du0][pusch1 2727914 prach1  454656]
     86257.770832 [NR_PHY] I [o_du0][pusch2 2727902 prach2  454656]
     86257.770833 [NR_PHY] I [o_du0][pusch3 2727916 prach3  454656]
-    
+
     ```
-    
+
     > On properly connected fronthaul, pusch and prach slots will be occuped by values. If it shows 0 that means your O-RU and GNB is not connected properly
-    > 
+    >
 3. …
-    
-    
+
+
 
 ## UE → 5G Network
 
 1. Subscriber Detail
-    
-    
+
+
     | IMSI | KI | OPC |
     | --- | --- | --- |
     | 001010000062655 | 8baf473f2f8fd09487cccbd7097c6862 | 8e27b6af0e692e750f32667a3b14605d |
     | 001010000062656 | 8baf473f2f8fd09487cccbd7097c6862 | 8e27b6af0e692e750f32667a3b14605d |
 2. AMF Log
-    
+
     ```yaml
     09/30 16:08:03.638: [amf] INFO:     RAN_UE_NGAP_ID[1] AMF_UE_NGAP_ID[598] TAC[1] CellID[0xe1200] (../src/amf/ngap-handler.c:598)
     09/30 16:08:03.638: [amf] INFO: [suci-0-001-01-0-0-0-0000062655] Known UE by 5G-S_TMSI[AMF_ID:0x20040,M_TMSI:0xc00004d7] (../src/amf/context.c:1916)
@@ -1489,11 +1561,11 @@ Ref:
     09/30 16:08:04.024: [amf] WARNING: UnRef NF EndPoint(addr) [10.0.6.204:7777] (../src/amf/nsmf-handler.c:144)
     09/30 16:08:04.024: [amf] INFO: Setup NF EndPoint(addr) [10.0.6.204:7777] (../src/amf/nsmf-handler.c:144)
     09/30 16:08:04.064: [amf] INFO: [imsi-001010000062655:1:11][1:0:NULL] /nsmf-pdusession/v1/sm-contexts/{smContextRef}/modify (../src/amf/nsmf-handler.c:942)
-    
+
     ```
-    
+
 3. GNB Log
-    
+
     ```yaml
     87571.050815 [NR_PHY] I [o-du 0][rx 8085440 pps   86016 kbps 3558604][tx 11983988 pps  127488 kbps 4717971][Total Msgs_Rcvd 8085440]
     87571.050824 [NR_PHY] I [o_du0][pusch0 1732594 prach0  288768]
@@ -1509,7 +1581,7 @@ Ref:
     UE de8e: LCID 1: TX            743 RX           2218 bytes
     UE de8e: LCID 2: TX              0 RX              0 bytes
     UE de8e: LCID 4: TX        4065791 RX         243616 bytes
-    
+
     87572.330809 [NR_PHY] I [o-du 0][rx 8171456 pps   86016 kbps 3558604][tx 12111476 pps  127488 kbps 4717971][Total Msgs_Rcvd 8171456]
     87572.330817 [NR_PHY] I [o_du0][pusch0 1751026 prach0  291840]
     87572.330819 [NR_PHY] I [o_du0][pusch1 1751022 prach1  291840]
@@ -1524,7 +1596,7 @@ Ref:
     UE de8e: LCID 1: TX            746 RX           2240 bytes
     UE de8e: LCID 2: TX              0 RX              0 bytes
     UE de8e: LCID 4: TX        4065791 RX         243616 bytes
-    
+
     87573.610811 [NR_PHY] I [o-du 0][rx 8257470 pps   86014 kbps 3558482][tx 12238964 pps  127488 kbps 4717971][Total Msgs_Rcvd 8257470]
     87573.610818 [NR_PHY] I [o_du0][pusch0 1769456 prach0  294912]
     87573.610820 [NR_PHY] I [o_du0][pusch1 1769454 prach1  294912]
@@ -1532,33 +1604,33 @@ Ref:
     87573.610822 [NR_PHY] I [o_du0][pusch3 1769454 prach3  294912]
     87573.620590 [PHY] I prach_I0 = 24.7 dB
     ```
-    
+
 4. UE Nemo Log
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2010.png)
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2011.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2010.png)
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2011.png)
+
 5. Control Plane Traffic
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2012.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2012.png)
+
 6. User Plane Traffic
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2013.png)
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2014.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2013.png)
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2014.png)
+
 
 # Hard Lessons
 
-### Namespace Stuck on Terminating
+## Namespace Stuck on Terminating
 
 **Symptom**
 
 1. Namespace stuck on terminating with kubernetes as finalizers
 
- 
+
 
 **Resolution**
 
@@ -1578,14 +1650,14 @@ Ref:
 
 **Symptom**
 
-1. It is not advised to setup srIov CNi on single node cluster as when the 
+1. It is not advised to setup srIov CNi on single node cluster as when the
 
 **Resolution**
 
 1. Untag the sriov.capable from node
 2. Delete necessary components
     1. Delete sriov operator state
-    2. Delete sriov policy 
+    2. Delete sriov policy
 3. Edit node and remove Unschedule: true from spec
 
 ### GNB:  Missing parameters on OAI configmap
@@ -1597,17 +1669,17 @@ Ref:
 
 </aside>
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2015.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2015.png)
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2016.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2016.png)
 
 ### GNB: Failure to attach on VFIO Interface due to hugepages
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2017.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2017.png)
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2018.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2018.png)
 
-### SRIOV: Boot Loop due to vfio-pci
+## SRIOV: Boot Loop due to vfio-pci
 
 This happens if you load vfio-pci module without enable sriov support
 
@@ -1620,18 +1692,18 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 dracut --force
 ```
 
-### GNB: SCTP Transmission Failure between PODs when using default CNI
+## GNB: SCTP Transmission Failure between PODs when using default CNI
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2019.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2019.png)
 
 **Resolution**
 
 1. If you are using cillium as CNI always make sure the flag `enable-sctp`  is set to true. By default its false.
 
-### GNB: MSG3 Scheduling Failure
+## GNB: MSG3 Scheduling Failure
 
 - *Log Dump*
-    
+
     ```yaml
     228847.745222 [NR_PHY] I [o-du 0][rx 65258406 pps   86016 kbps 1402060][tx 98675828 pps  127488 kbps 4717971][Total Msgs_Rcvd 65258406]
     228847.745228 [NR_PHY] I [o_du0][pusch0 13978942 prach0 2335806]
@@ -1673,138 +1745,138 @@ dracut --force
     228848.127023 [NR_MAC] W Random Access 2 failed at state WAIT_Msg3 (Reached msg3 max harq rounds)
     228848.127027 [NR_MAC] E Couldn't identify UE connected with current UL HARQ process
     ```
-    
 
-### UE: Attach Failure
+
+## UE: Attach Failure
 
 **Cause**
 
 - Bad synchronization on fronthaul, CPU binding or Hugepages Allocation
 - Kubernetes allocate isolated CPUs for everyone, not only GNB
-- 
+-
 
 **Symptomps**
 
-1. MSG3  failed to complete 
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2020.png)
-    
+1. MSG3  failed to complete
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2020.png)
+
 2. GNB Complains about un-synchronized UE
     - out-sync log
-        
+
         ```yaml
         UE RNTI 1439 CU-UE-ID 1 out-of-sync PH 39 dB PCMAX 21 dBm, average RSRP 0
          (0 meas)
         UE 1439: CQI 7, RI 1, PMI (7,0)
-        UE 1439: dlsch_rounds 6/5/4/3, dlsch_errors 3, pucch0_DTX 9, BLER 
+        UE 1439: dlsch_rounds 6/5/4/3, dlsch_errors 3, pucch0_DTX 9, BLER
         0.37306 MCS (0) 0
-        UE 1439: ulsch_rounds 40/39/37/35, ulsch_errors 35, ulsch_DTX 101, BLER 
+        UE 1439: ulsch_rounds 40/39/37/35, ulsch_errors 35, ulsch_DTX 101, BLER
         0.98631 MCS (0) 6 (Qm 2 deltaMCS 0 dB) NPRB 23  SNR 10.5 dB
         UE 1439: MAC:    TX            619 RX            286 bytes
         UE 1439: LCID 1: TX              3 RX             39 bytes
         839985.186769 [NR_MAC] I UE 80fd: Msg3 scheduled at 144.13 (144.8 TDA 2)
-        839985.186776 [NR_MAC] A UE 80fd: 144.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 8, timing_offset = 14 (estimated 
+        839985.186776 [NR_MAC] A UE 80fd: 144.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 8, timing_offset = 14 (estimated
         distance 546.9 [m])
-        839985.187060 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.187060 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.205277 [NR_MAC] A 145.19 UE RA-RNTI 010b TC-RNTI d6a3: Activating
          RA process index 0
         839985.206766 [NR_MAC] I UE d6a3: Msg3 scheduled at 146.13 (146.8 TDA 2)
-        839985.206772 [NR_MAC] A UE d6a3: 146.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 6, timing_offset = 35 (estimated 
+        839985.206772 [NR_MAC] A UE d6a3: 146.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 6, timing_offset = 35 (estimated
         distance 1367.2 [m])
-        839985.207073 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.207073 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.225264 [NR_MAC] A 147.19 UE RA-RNTI 010b TC-RNTI 150b: Activating
          RA process index 1
         839985.226768 [NR_MAC] I UE 150b: Msg3 scheduled at 148.13 (148.8 TDA 2)
-        839985.226774 [NR_MAC] A UE 150b: 148.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 58, timing_offset = 10 (estimated 
+        839985.226774 [NR_MAC] A UE 150b: 148.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 58, timing_offset = 10 (estimated
         distance 390.6 [m])
-        839985.227043 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.227043 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.245269 [NR_MAC] A 149.19 UE RA-RNTI 010b TC-RNTI d53d: Activating
          RA process index 0
         839985.246775 [NR_MAC] I UE d53d: Msg3 scheduled at 150.13 (150.8 TDA 2)
-        839985.246782 [NR_MAC] A UE d53d: 150.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 60, timing_offset = 34 (estimated 
+        839985.246782 [NR_MAC] A UE d53d: 150.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 60, timing_offset = 34 (estimated
         distance 1328.2 [m])
-        839985.247105 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.247105 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.265264 [NR_MAC] A 151.19 UE RA-RNTI 010b TC-RNTI 7a8e: Activating
          RA process index 1
         839985.266765 [NR_MAC] I UE 7a8e: Msg3 scheduled at 152.13 (152.8 TDA 2)
-        839985.266771 [NR_MAC] A UE 7a8e: 152.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 35, timing_offset = 22 (estimated 
+        839985.266771 [NR_MAC] A UE 7a8e: 152.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 35, timing_offset = 22 (estimated
         distance 859.4 [m])
-        839985.267045 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.267045 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.285263 [NR_MAC] A 153.19 UE RA-RNTI 010b TC-RNTI 946d: Activating
          RA process index 0
         839985.286768 [NR_MAC] I UE 946d: Msg3 scheduled at 154.13 (154.8 TDA 2)
-        839985.286774 [NR_MAC] A UE 946d: 154.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 39, timing_offset = 0 (estimated 
+        839985.286774 [NR_MAC] A UE 946d: 154.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 39, timing_offset = 0 (estimated
         distance 0.0 [m])
-        839985.287045 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.287045 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
-        839985.307027 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.307027 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.345269 [NR_MAC] A 159.19 UE RA-RNTI 010b TC-RNTI 7e43: Activating
          RA process index 0
         839985.346769 [NR_MAC] I UE 7e43: Msg3 scheduled at 160.13 (160.8 TDA 2)
-        839985.346777 [NR_MAC] A UE 7e43: 160.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 32, timing_offset = 33 (estimated 
+        839985.346777 [NR_MAC] A UE 7e43: 160.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 32, timing_offset = 33 (estimated
         distance 1289.1 [m])
         839985.365263 [NR_MAC] A 161.19 UE RA-RNTI 010b TC-RNTI fcba: Activating
          RA process index 1
         839985.366768 [NR_MAC] I UE fcba: Msg3 scheduled at 162.13 (162.8 TDA 2)
-        839985.366775 [NR_MAC] A UE fcba: 162.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 47, timing_offset = 3 (estimated 
+        839985.366775 [NR_MAC] A UE fcba: 162.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 47, timing_offset = 3 (estimated
         distance 117.2 [m])
-        839985.367052 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.367052 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.385265 [NR_MAC] A 163.19 UE RA-RNTI 010b TC-RNTI 5ab6: Activating
          RA process index 0
         839985.386769 [NR_MAC] I UE 5ab6: Msg3 scheduled at 164.13 (164.8 TDA 2)
-        839985.386775 [NR_MAC] A UE 5ab6: 164.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 37, timing_offset = 32 (estimated 
+        839985.386775 [NR_MAC] A UE 5ab6: 164.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 37, timing_offset = 32 (estimated
         distance 1250.1 [m])
-        839985.387044 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.387044 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
-        839985.407024 [NR_MAC] E Couldn't identify UE connected with current UL 
+        839985.407024 [NR_MAC] E Couldn't identify UE connected with current UL
         HARQ process
         839985.445267 [NR_MAC] A 169.19 UE RA-RNTI 010b TC-RNTI 959e: Activating
          RA process index 0
         839985.446769 [NR_MAC] I UE 959e: Msg3 scheduled at 170.13 (170.8 TDA 2)
-        839985.446777 [NR_MAC] A UE 959e: 170.8 Generating RA-Msg2 DCI, RA RNTI 
-        0x10b, state 1, preamble_index(RAPID) 48, timing_offset = 31 (estimated 
+        839985.446777 [NR_MAC] A UE 959e: 170.8 Generating RA-Msg2 DCI, RA RNTI
+        0x10b, state 1, preamble_index(RAPID) 48, timing_offset = 31 (estimated
         distance 1211.0 [m])
         ```
-        
-3. GNB usable CPU is not isolated, instead it got all of the CPU  0-31
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2021.png)
-    
 
-### UE: OAI Core Network with LiteOn RU
+3. GNB usable CPU is not isolated, instead it got all of the CPU  0-31
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2021.png)
+
+
+## UE: OAI Core Network with LiteOn RU
 
 - UE got context release after request for PDU
 - Subscriber data introduced to CN chart of mysql subscriber data as sql entrypoint, such the following on `charts/mysql/initialization/oai_db-basic.sql`
-    
+
     ```yaml
     ...
     INSERT INTO `AuthenticationSubscription` (`ueid`, `authenticationMethod`, `encPermanentKey`, `protectionParameterId`, `sequenceNumber`, `authenticationManagementField`, `algorithmId`, `    encOpcKey`, `encTopcKey`, `vectorGenerationInHss`, `n5gcAuthMethod`, `rgAuthenticationInd`, `supi`) VALUES
     ('001010000062653', '5G_AKA', '8baf473f2f8fd09487cccbd7097c6862', '8baf473f2f8fd09487cccbd7097c6862', '{\"sqn\": \"000000000020\", \"sqnScheme\": \"NON_TIME_BASED\", \"lastIndexes\": {\    "ausf\": 0}}', '8000', 'milenage', '8e27b6af0e692e750f32667a3b14605d', NULL, NULL, NULL, NULL, '001010000062653');
     ...
-    INSERT INTO `SessionManagementSubscriptionData` (`ueid`, `servingPlmnid`, `singleNssai`, `dnnConfigurations`) VALUES 
+    INSERT INTO `SessionManagementSubscriptionData` (`ueid`, `servingPlmnid`, `singleNssai`, `dnnConfigurations`) VALUES
     ('001010000062653', '00101', '{\"sst\": 1, \"sd\": \"FFFFFF\"}','{\"oai\":{\"pduSessionTypes\":{ \"defaultSessionType\": \"IPV4\"},\"sscModes\": {\"defaultSscMode\": \"SSC_MODE_1\"},\"5gQosProfile\": {\"5qi\": 6,\"arp\":{\"priorityLevel\": 1,\"preemptCap\": \"NOT_PREEMPT\",\"preemptVuln\":\"NOT_PREEMPTABLE\"},\"priorityLevel\":1},\"sessionAmbr\":{\"uplink\":\"1000Mbps\", \"downlink\":\"1000Mbps\"}}}');
     -- BMW
     ```
-    
-- 
 
-### Open5GS: Bitnami related images
+-
+
+## Open5GS: Bitnami related images
 
 ```yaml
 
@@ -1816,14 +1888,14 @@ dracut --force
 │ bitnami/mongodb:5.0.10-debian-11-r3: reading manifest 5.0.10-debian-11-r3 in docker.io/bitnami/mongodb: manifest unknown                                                 │
 │   Warning  Failed          2m11s (x4 over 3m42s)  kubelet            Error: ErrImagePull                                                                                 │
 │   Warning  Failed          106s (x6 over 3m41s)   kubelet            Error: ImagePullBackOff                                                                             │
-│   Normal   BackOff         95s (x7 over 3m41s)    kubelet            Back-off pulling image "docker.io/bitnami/mongodb:5.0.10-debian-11-r3"    
+│   Normal   BackOff         95s (x7 over 3m41s)    kubelet            Back-off pulling image "docker.io/bitnami/mongodb:5.0.10-debian-11-r3"
 ```
 
 - Bitnami remove all of their image from public repo
 
 [Broadcom Introduces Bitnami Secure Images For Production-Ready Containerized Applications - Broadcom News and Stories](https://news.broadcom.com/app-dev/broadcom-introduces-bitnami-secure-images-for-production-ready-containerized-applications)
 
-### Kubelet: CPU MAnager Policy
+## Kubelet: CPU MAnager Policy
 
 **Symptomp**
 
@@ -1888,23 +1960,23 @@ authorization:
 - Medium usage such as watch youtube is fine (**For a while only)**
 - Crash when on download **and** upload
 - Upload
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2022.png)
-    
-    ![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2023.png)
-    
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2022.png)
+
+    ![image.png](study-note-gnb-gh72-kubernetes/image%2023.png)
+
 - Download
-    - 
+    -
 - **Download Crash Log**
     - Log
-        
+
         ```yaml
-        
+
         ```
-        
+
 - GNB Upload Crash Log
     - Log
-        
+
         ```yaml
         142535.530808 [NR_PHY] I [o-du 0][rx 19525466 pps   86016 kbps 3558604][tx 28939892 pps  127488 kbps 4717971][Total Msgs_Rcvd 19525466]
         142535.530820 [NR_PHY] I [o_du0][pusch0 4184024 prach0  697344]
@@ -1930,7 +2002,7 @@ authorization:
         UE a2cb: LCID 1: TX           1133 RX           5069 bytes
         UE a2cb: LCID 2: TX              0 RX              0 bytes
         UE a2cb: LCID 4: TX         196340 RX     1376402955 bytes
-        
+
         142536.810810 [NR_PHY] I [o-du 0][rx 19611482 pps   86016 kbps 3558604][tx 29067380 pps  127488 kbps 4717971][Total Msgs_Rcvd 19611482]
         142536.810823 [NR_PHY] I [o_du0][pusch0 4202456 prach0  700416]
         142536.810825 [NR_PHY] I [o_du0][pusch1 4202460 prach1  700416]
@@ -1977,7 +2049,7 @@ authorization:
         UE a2cb: LCID 1: TX           1139 RX           5113 bytes
         UE a2cb: LCID 2: TX              0 RX              0 bytes
         UE a2cb: LCID 4: TX         196636 RX     1386063874 bytes
-        
+
         142538.090812 [NR_PHY] I [o-du 0][rx 19697498 pps   86016 kbps 3558604][tx 29194868 pps  127488 kbps 4717971][Total Msgs_Rcvd 19697498]
         142538.090825 [NR_PHY] I [o_du0][pusch0 4220888 prach0  703488]
         142538.090827 [NR_PHY] I [o_du0][pusch1 4220892 prach1  703488]
@@ -2069,21 +2141,21 @@ authorization:
         142538.648886 [NR_MAC] I  696 1: RA RNTI 49ed CC_id 0 Scheduling retransmission of Msg3 in (696,3)
         TYPE <CTRL-C> TO TERMINATE
         first_call set from phy cb first_call_set=0x7f01b0067ac0
-        
+
         Assertion (future_ul_tti_req->SFN == sched_frame && future_ul_tti_req->Slot == sched_slot) failed!
         In nr_generate_Msg3_retransmission() /oai-ran/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_RA.c:890
         future UL_tti_req's frame.slot 695.3 does not match PUSCH 696.3
-        
+
         Exiting execution
         Stream closed EOF for oai-gnb-fh72/oai-gnb-9c76796d4-846k8 (gnb)
         ```
-        
+
 
 ### **Symptoms II**
 
 - Avarage load ok under 100Mbps
 - Error: CSI structure is scheluded in advanced
-    
+
     ```jsx
     1295400.860327 [NR_MAC] W 903.1 future UL_tti_req's frame.slot 902.3 does not match PUSCH 903.3
     1295400.860980 [NR_MAC] E Cannot schedule SR. PRBs not available
@@ -2091,16 +2163,16 @@ authorization:
     1295400.864619 [NR_MAC] W Unexpected ULSCH HARQ PID 13 (have 14) for RNTI 0x61a3
     1295400.947085 [HW] E Detected double sync message 911.9 => 911.10
     1295400.947100 [HW] E Received Time doesn't correspond to the time we think it is (slot mismatch, received 911.10, expected 911.9)
-    
+
     Assertion (curr_pucch->active == 0) failed!
     In nr_csi_meas_reporting() /oai-ran/openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_uci.c:282
     CSI structure is scheduled in advance. It should be free!
-    
+
     Exiting execution
     1295400.948880 [HW] I xran_get_time_stats(): total thread time 647459439474, total time essential tasks 378640699324, num cores used 2
     Stream closed EOF for oai-gnb-fh72/oai-gnb-liteon-795558877-sf76d (gnb)
     ```
-    
+
 
 ### Resolultion
 
@@ -2113,70 +2185,70 @@ authorization:
 ### GNB: After O-RU reboot num_bytes always wrong
 
 - Log
-    
+
     ```yaml
-    
+
     oai-gnb-9c76796d4-hjl8p process_mbuf:744[err] num_bytes is wrong [0]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:744[err] num_bytes is wrong [0]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     oai-gnb-9c76796d4-hjl8p process_mbuf:860[err] res != symbol_total_bytes[p_dev_ctx->xran_port_id][CC_ID][Ant_ID]
-    oai-gnb-9c76796d4-hjl8p 
+    oai-gnb-9c76796d4-hjl8p
     Stream closed EOF for oai-gnb-fh72/oai-gnb-9c76796d4-hjl8p (gnb)
     ```
-    
+
 
 ### O-RU LiteON: Center Frequency
 
@@ -2185,7 +2257,7 @@ authorization:
 - 2000 → Samsung OK, MTK Not
 - 8000 → MTK Ok, Samsung Not
 
-![image.png](CICD%20O-DU%20FH%207%202%20on%20Kubernetes%20218d924b024b80d99cabc08200495b9b/image%2024.png)
+![image.png](study-note-gnb-gh72-kubernetes/image%2024.png)
 
 ### K8S: topologyManagerPolicy
 
