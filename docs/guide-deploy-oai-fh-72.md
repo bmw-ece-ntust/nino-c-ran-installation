@@ -1,6 +1,6 @@
 # Install C-RAN
 
-This guide assume you have finished the cluster installation step from <LINK>
+This guide assume you have finished the cluster installation step from (Link)
 
 ## Cluster Credentials
 

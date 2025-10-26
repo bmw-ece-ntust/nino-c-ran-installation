@@ -186,7 +186,7 @@ If it succeess you shold have your template iso now
 
 ### Upload ISO and Kickstart
 
-For fully offline installation you can also host your BaseOS content on the Nginx instance. This way the nodes wont have to connected to internet (Only the provisioner), this will also skip the redhat registarion phase on the during installation <We will register upoin OS provision>
+For fully offline installation you can also host your BaseOS content on the Nginx instance. This way the nodes wont have to connected to internet (Only the provisioner), this will also skip the redhat registarion phase on the during installation (We will register upoin OS provision)
 
 1. Extract DVD ISO
 2. Upload DVD ISO contents to NGINX instance at `<NGINX_DIR>/nginx-isos/isos/rhel/`
