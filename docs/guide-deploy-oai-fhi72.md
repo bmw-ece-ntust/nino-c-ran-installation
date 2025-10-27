@@ -3,7 +3,7 @@
 > [!NOTE]
 > This User Guide is for deployment of OAI-GNB-FH72
 
-![XX](../assets/sys-isolation.svg)
+![XX](assets/sys-isolation.svg)
 
 ## Table of Contents
 

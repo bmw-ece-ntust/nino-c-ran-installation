@@ -1,4 +1,4 @@
-# CICD: O-DU FH 7.2 on Kubernetes
+# Study Note: O-Cloud cluster setup for GNB-FH72
 
 Status: In progress
 Created time: June 20, 2025 11:58 AM

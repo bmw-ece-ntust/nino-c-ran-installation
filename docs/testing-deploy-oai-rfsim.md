@@ -1,9 +1,9 @@
-# GNB+rfSIM Deployment on O-Cloud
+# Guide: GNB+rfSIM Deployment on O-Cloud
 
 > [!NOTE]
 > This User Guide is for deployment of OAI RFSim on O-Cloud.
 
-![XX](../assets/sys-isolation.svg)
+![XX](assets/sys-isolation.svg)
 
 ## Table of Contents
 
