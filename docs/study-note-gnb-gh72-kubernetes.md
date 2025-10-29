@@ -1681,7 +1681,9 @@ Ref:
 
 ## SRIOV: Boot Loop due to vfio-pci
 
-This happens if you load vfio-pci module without enable sriov support
+- Always check the sriov-network-operator pod for crash information
+- This happens if you load vfio-pci module without enable sriov support
+- Grub args need to have `intel_iommu=on iommu=pt`
 
 ```yaml
 # /etc/modprobe.d/vfio-sriov.conf
