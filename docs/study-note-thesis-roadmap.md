@@ -24,6 +24,13 @@
 - The automation work remains unchanged. Bimo confirmed developers still write the pipeline scripts. The complexity of CI/CD automation has not been eliminated—only the infrastructure burden.
 - No existing pipeline scripts for GNB, rApp, or O2-related builds. These must be written from scratch.
 
+**On-Premise Integration Limitations**
+- GitHub Actions cannot reach on-premise facilities for integration testing. After build completion, the CI script needs access to local APIs—SMO, O-RU Mplane, or other devices—to validate software on the end-to-end environment.
+- The CICD focus is integration, not just compilation. Build process completes, but validation requires local device access. GitHub Actions runs on cloud infrastructure with no direct path to private networks.
+- For integration testing with physical O-RU units or local SMO instances, on-premise Jenkins remains necessary. GitHub Actions handles public repository builds; Jenkins handles everything that touches local hardware or private APIs.
+- Split approach possible: GitHub Actions for build and unit tests, Jenkins for integration tests requiring local facility access. This introduces pipeline complexity and state management between two systems.
+
+
 ---
 
 ## 2. O-RU Integration Status
