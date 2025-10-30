@@ -14,6 +14,7 @@
     * [srsRAN - LiteON C3](#srsran---liteon-c3)
 * [Key Technical Findings](#key-technical-findings)
     * [SR-IOV VLAN Issue (XXV710 NIC)](#sr-iov-vlan-issue-xxv710-nic)
+* [>](#)
     * [CPU Instruction Set Compatibility (E810 NIC)](#cpu-instruction-set-compatibility-e810-nic)
 * [Action Items](#action-items)
     * [Immediate (This Week)](#immediate-this-week)
@@ -222,6 +223,13 @@ vfio-pci 0000:70:02.0: enabling device (retry 3x)
 2. Baremetal deployment model
 3. Systemd-managed VF setup before kubelet starts
 
+> Refernces
+> VF Reset Timing
+> https://git.sceen.net/linux/linux-stable.git/commit/net/ipv4?h=v2.6.12&id=47907ebeb77a96edfdb5ea1baa83cd334b5e0522
+>
+> iavf Capability Loss after Reset
+> https://lists.linaro.org/archives/list/linux-stable-mirror@lists.linaro.org/message/2W5FEXWD344LFDMWZA33LZ7I45G7LYYJ/
+>
 ---
 
 ### CPU Instruction Set Compatibility (E810 NIC)
