@@ -72,8 +72,11 @@ Tag: O2
         * [Resolultion](#resolultion)
         * [GNB: After O-RU reboot num_bytes always wrong](#gnb-after-o-ru-reboot-num_bytes-always-wrong)
         * [O-RU LiteON: Center Frequency](#o-ru-liteon-center-frequency)
+        * [GNB: Failed to RUN on Older CPU](#gnb-failed-to-run-on-older-cpu)
         * [K8S: topologyManagerPolicy](#k8s-topologymanagerpolicy)
     * [SRSRAN: PCI SRIOV](#srsran-pci-sriov)
+    * [OAI GNB: Laovisier](#oai-gnb-laovisier)
+    * [- ruinterface multus disable on values.yaml](#--ruinterface-multus-disable-on-valuesyaml)
 
 <!-- vim-markdown-toc -->
 
@@ -2261,6 +2264,55 @@ authorization:
 
 ![image.png](study-note-gnb-gh72-kubernetes/image%2024.png)
 
+### GNB: Failed to RUN on Older CPU
+
+- Rebuild to support older CPU
+
+**Case: Worker-RT-01**
+- CPU Model ID: 79 (Intel Broadwell-DE, circa 2015)
+- Available instructions: AVX, AVX2, FMA3, AES-NI
+
+**Crash with GDB**
+```
+root@oai-gnb-5fb67bb96c-qv9r6:/opt/oai-gnb# gdb ./bin/nr-softmodem
+GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1
+Copyright (C) 2022 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./bin/nr-softmodem...
+(gdb) r
+Starting program: /opt/oai-gnb/bin/nr-softmodem
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[Detaching after fork from child process 147]
+CMDLINE: "/opt/oai-gnb/bin/nr-softmodem"
+
+Program received signal SIGILL, Illegal instruction.
+set_softmodem_sighandler () at /oai-ran/executables/softmodem-common.c:231
+231	/oai-ran/executables/softmodem-common.c: No such file or directory.
+(gdb) c
+Continuing.
+
+Program terminated with signal SIGILL, Illegal instruction.
+The program no longer exists.
+(gdb) trace
+Tracepoint 1 at 0x555555e3bc35: file /usr/include/x86_64-linux-gnu/bits/string_fortified.h, line 59.
+```
+
+Resolution:
+- Build OAI with -march=broadwell
+
 ### K8S: topologyManagerPolicy
 
 - Using single-numa-node for toplogoyManagerPolicy will resulted on not synchronized pusch slot values
@@ -2310,3 +2362,23 @@ gNB exited with code 1
 Stream closed EOF for srsran-gnb/srsran-project-cudu-chart-7b7b5c75bf-jhfs5 (srsran-cu-du)
 
 ```
+
+## OAI GNB: Laovisier
+
+Symptomps:
+- NIC: with driver i40e
+- GNB Will always failed to attach the NIC after the NIC is managed by multus. VF created by sriov-network-operator can be attached but once multus touch that thing, hell broke lose
+- kernel loaded
+
+```
+#lspci -k -s 70:02.0
+
+70:02.0 Ethernet controller: Intel Corporation Ethernet Virtual Function 700 Series (rev 02)
+	Subsystem: Super Micro Computer Inc Device 0000
+	Kernel driver in use: iavf
+	Kernel modules: iavf
+```
+Resolution:
+- ruinterface multus disable on values.yaml
+-
+
