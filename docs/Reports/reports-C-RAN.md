@@ -1721,6 +1721,242 @@ curl -k -H "Content-Type: application/json" \
 kill %1
 ```
 
+### 11.9 GNB Crash After Load Jura RU
+
+Symptopms:
+- GNB Crash after traffic test
+- Perform repeatitive iperf test (not in single sequence) such as 10 iterations 3 times. After 2 times GNB will crash
+
+#### GNB Pod Without ThreadPool
+
+Behaviours:
+- pusch and prach slots are uniform (mostly)
+- Repeatitive SpeedTest (Burst Test) GNB remain stable
+- iperf3 load test failed after more than one test
+
+
+List Processes `ps -eLo pid,class,rtprio,psr,comm `
+
+```ps
+     PID CLS RTPRIO PSR COMMAND
+      1 TS       -   2 bash
+     62 TS       -   2 sleep
+     63 TS       -  31 bash
+    102 TS       -  24 bash
+   1324 TS       -  28 nr-softmodem
+   1324 RR       2  27 MAC_STATS
+   1324 TS       -  27 RLC queue
+   1324 TS       -  24 PDCP data ind
+   1324 TS       -  31 pdcp_timer
+   1324 RR      50  29 TASK_SCTPcpuManagerPolicyOptions:
+   1324 RR      50  24 TASK_NGAP
+   1324 RR      50  26 TASK_RRC_GNB
+   1324 RR      50  30 TASK_GNB_APP
+   1324 RR      50  30 TASK_GTPV1_U
+   1324 RR       2  27 nr-softmodem
+   1324 RR      97   4 ru_thread
+   1324 RR      97   4 eal-intr-thread
+   1324 RR      97   4 rte_mp_handle
+   1324 FF      98   6 fh_main_poll-6
+   1324 FF      98   7 fh_rx_bbdev-7
+   1324 RR      97   4 iavf-event-thre
+   1324 RR      97  26 Tpool0_-1
+   1324 RR      97  30 Tpool1_-1
+   1324 RR      97  29 Tpool2_-1
+   1324 RR      97  31 Tpool3_-1
+   1324 RR      97  28 Tpool4_-1
+   1324 RR      97  30 Tpool5_-1
+   1324 RR      97  26 Tpool6_-1
+   1324 RR      97  28 Tpool7_-1
+   1324 RR      97   2 L1_rx_thread
+   1324 RR      97   3 L1_tx_thread
+   1324 RR       1  27 L1_stats
+   1325 TS       -  26 nr-softmodem
+   1342 TS       -  24 watch
+   1402 TS       -  28 watch
+   1403 TS       -  29 sh
+   1404 TS       -  30 ps
+```
+
+- Tpool threads are being allocated from outside of the isolated_cpus 26-31
+
+#### GNB With ThreadPool
+
+Running Command:
+```bash
+./bin/nr-softmodem -O /tmp/du.conf --thread-pool 8,9,10,11,12,13,14,15,16,17,18,19,20,21
+```
+
+Behaviours:
+- pusch and prach slots are dont sync well
+
+```log
+O-DU: thread_run start time: 11/05/25 13:08:20.000000002 UTC [500]
+[PHY]   Attaching RU 0 antenna 0 to gNB antenna 0
+[PHY]   Attaching RU 0 antenna 1 to gNB antenna 1
+[PHY]   Attaching RU 0 antenna 2 to gNB antenna 2
+[PHY]   Attaching RU 0 antenna 3 to gNB antenna 3
+[UTIL]   threadCreate() for Tpool0_8: creating thread with affinity 8, priority 97
+[UTIL]   threadCreate() for Tpool1_9: creating thread with affinity 9, priority 97
+[UTIL]   threadCreate() for Tpool2_10: creating thread with affinity a, priority 97
+[UTIL]   threadCreate() for Tpool3_11: creating thread with affinity b, priority 97
+[UTIL]   threadCreate() for Tpool4_12: creating thread with affinity c, priority 97
+[UTIL]   threadCreate() for Tpool5_13: creating thread with affinity d, priority 97
+[UTIL]   threadCreate() for Tpool6_14: creating thread with affinity e, priority 97
+[UTIL]   threadCreate() for Tpool7_15: creating thread with affinity f, priority 97
+[UTIL]   threadCreate() for Tpool8_16: creating thread with affinity 10, priority 97
+[UTIL]   threadCreate() for Tpool9_17: creating thread with affinity 11, priority 97
+[UTIL]   threadCreate() for Tpool10_18: creating thread with affinity 12, priority 97
+[UTIL]   threadCreate() for Tpool11_19: creating thread with affinity 13, priority 97
+[UTIL]   threadCreate() for Tpool12_20: creating thread with affinity 14, priority 97
+[UTIL]   threadCreate() for Tpool13_21: creating thread with affinity 15, priority 97
+[UTIL]   threadCreate() for L1_rx_thread: creating thread with affinity 2, priority 97
+[UTIL]   threadCreate() for L1_tx_thread: creating thread with affinity 3, priority 97
+[UTIL]   threadCreate() for L1_stats: creating thread with affinity ffffffff, priority 1
+```
+
+List Processes `ps -eLo pid,class,rtprio,psr,comm ` inside container
+
+- PSR -> CPU
+
+```ps
+ PID CLS RTPRIO PSR COMMAND
+      1 TS       -   2 bash
+     62 TS       -   2 sleep
+     63 TS       -  30 bash
+    102 TS       -  29 bash
+    394 TS       -  24 watch
+   1204 TS       -  27 nr-softmodem
+   1204 RR       2  24 MAC_STATS
+   1204 TS       -  24 RLC queue
+   1204 TS       -  28 PDCP data ind
+   1204 TS       -  26 pdcp_timer
+   1204 RR      50  27 TASK_SCTP
+   1204 RR      50  26 TASK_NGAP
+   1204 RR      50  29 TASK_RRC_GNB
+   1204 RR      50  30 TASK_GNB_APP
+   1204 RR      50  26 TASK_GTPV1_U
+   1204 RR       2  30 nr-softmodem
+   1204 RR      97   4 ru_thread
+   1204 RR      97   4 eal-intr-thread
+   1204 RR      97   4 rte_mp_handle
+   1204 FF      98   6 fh_main_poll-6
+   1204 FF      98   7 fh_rx_bbdev-7
+   1204 RR      97   4 iavf-event-thre
+   1204 RR      97   8 Tpool0_8
+   1204 RR      97   9 Tpool1_9
+   1204 RR      97  10 Tpool2_10
+   1204 RR      97  11 Tpool3_11
+   1204 RR      97  12 Tpool4_12
+   1204 RR      97  13 Tpool5_13
+   1204 RR      97  14 Tpool6_14
+   1204 RR      97  15 Tpool7_15
+   1204 RR      97  16 Tpool8_16
+   1204 RR      97  17 Tpool9_17
+   1204 RR      97  18 Tpool10_18
+   1204 RR      97  19 Tpool11_19
+   1204 RR      97  20 Tpool12_20
+   1204 RR      97  21 Tpool13_21
+   1204 RR      97   2 L1_rx_thread
+   1204 RR      97   3 L1_tx_thread
+   1204 RR       1  30 L1_stats
+   1205 TS       -  24 nr-softmodem
+   1266 TS       -  27 watch
+   1267 TS       -  30 sh
+   1268 TS       -  25 ps
+```
+
+- Tpool threads are being allocated from the isolated_cpus as requested using `--thread-pools` flag 8-21
+
+#### Upgarde kubernetes to v1.32 to allow strict-cpu flag
+
+Applied Config
+```yaml
+reservedSystemCPUs: "0-1,24-31"
+systemReserved:
+  cpu: "1"
+  memory: 8Gi
+topologyManagerPolicy: "single-numa-node"
+cpuManagerPolicy: "static"
+cpuManagerPolicyOptions:
+  strict-cpu-reservation: "true"
+featureGates:
+  CPUManagerPolicyAlphaOptions: true
+```
+
+#### Allocate all availaable CPU
+
+- Better SYNC
+- Higher throughput ~400Mbps
+
+
+#### Increase TX timeout on PTP4L and Change Format
+
+- Stable even after multiple sequence of iperf3 test 5 x 10 times, 3 x 100 times.
+- Throughput is small
+
+```ptp4l
+# Test
+[global]
+domainNumber            24
+slaveOnly               1
+time_stamping           hardware
+tx_timestamp_timeout    50
+logging_level           6
+summary_interval        0
+step_threshold          0.00002
+first_step_threshold    0.00002
+max_frequency           900000000
+clock_servo             pi
+pi_proportional_const   0.0
+pi_integral_const       0.0
+pi_proportional_scale   0.0
+pi_proportional_exponent -0.3
+pi_proportional_norm_max 0.7
+pi_integral_exponent    0.4
+pi_integral_norm_max    0.3
+
+#[enp67s0f1]
+[ens1f1]
+network_transport       L2
+hybrid_e2e              0
+delay_mechanism         E2E
+```
+
+#### Update Ta4 config and sl_ahead on GNB Config
+
+- Increase `sl_ahead`  from 10 to 12 increase stability. No more crash upon sudden start and sudden stop of iperf testing (burst testing)
+- Throughput average ~250Mbps on IPerf3 UDP
+- Throughput average ~300Mbps on Ookla Speedtes
+
+```RUs = (
+{
+  ...
+  sl_ahead = 12;  # Was 10, increase scheduling lead time
+  ...
+}
+);
+```
+
+```
+fh_config = ({
+  ...
+  T1a_cp_dl = (285, 550);  # Was (285, 470), increased by 80ns
+  T1a_cp_ul = (285, 520);  # Was (285, 429), increased by 91ns
+  T1a_up = (100, 400);     # Was (100, 300), increased by 100ns
+  Ta4 = (110, 280);        # Was (110, 180), increased by 100ns
+  ...
+  ru_config = {
+    iq_width = 9;
+    iq_width_prach = 9;
+  };
+  prach_config = {
+    eAxC_offset = 4;
+    kbar = 4;
+  };
+});
+```
+
 ---
 
 ## 12. Appendix
