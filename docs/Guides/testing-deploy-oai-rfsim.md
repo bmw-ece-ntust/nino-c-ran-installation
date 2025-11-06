@@ -3,7 +3,7 @@
 > [!NOTE]
 > This User Guide is for deployment of OAI RFSim on O-Cloud.
 
-![XX](assets/sys-isolation.svg)
+![Notes](assets/sys-isolation.svg)
 
 ## Table of Contents
 
@@ -320,7 +320,3 @@ kubectl logs -n john-ns $nr_ue_pod_name
 Output Example
 ```bash
 ```
-
-
-
-

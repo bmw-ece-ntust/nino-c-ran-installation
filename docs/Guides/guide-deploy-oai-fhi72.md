@@ -3,7 +3,7 @@
 > [!NOTE]
 > This User Guide is for deployment of OAI-GNB-FH72
 
-![XX](assets/sys-isolation.svg)
+![Access](../assets/sys-isolation.svg)
 
 ## Table of Contents
 
@@ -348,7 +348,3 @@ kubectl logs -n john-ns $nr_ue_pod_name
 Output Example
 ```bash
 ```
-
-
-
-
