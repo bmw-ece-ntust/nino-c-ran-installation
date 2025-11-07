@@ -137,8 +137,8 @@ Branch: `production` | Last Updated: 2025-01-01
 | Machine       | CPU Model       | Generation                       | BitRate | Model ID | Cores       | AV2         | Memory | NIC            | OS          | Status |
 | :---          | :---            | :---                             | :---    | :---     | :---        | :---        | :---   | :---           | :---        | :---   |
 | **Joule**     | Xeon Gold 6326Y | **3rd Gen (Ice Lake-SP)**        |  300Mbps       | 106      | 16C/32T     | Support     | 128GB  | Intel E810-XXV | RHEL 9.6 RT | ✅     |
-| **Lavoisier** | Xeon Gold 6433N | **4th Gen (Sapphire Rapids-SP)** | N/A        | 143      | **32C/64T** | Support     | 256GB  | Intel XXV710   | RHEL 9.2 RT | ⚠️     |
-| **Newton**    | Xeon E5-2695 v4 | **v4 (Broadwell-EP)**            |  N/A       | 79       | **18C/36T** | **Support** | 64GB   | Intel E810-XXV | RHEL 9.5 RT | ❌     |
+| **Lavoisier** | Xeon Gold 6433N | **4th Gen (Sapphire Rapids-SP)** | N/A        | 143      | **32C/64T** | Support     | 256GB  | Intel XXV710 <br> Intel E810-XXV   | RHEL 9.2 RT | ⚠️     |
+| **Newton**    | Xeon E5-2695 v4 | **v4 (Broadwell-EP)**            |  N/A       | 79       | **18C/36T** | **Support** | 64GB   | N/A | RHEL 9.5 RT | Will handle nonRT Workload     |
 
 
 ### 1.2 Cluster Network Topology
