@@ -74,21 +74,22 @@ Branch: `production` | Last Updated: 2025-01-01
 
 ### Build & Deploy
 
-| Item                                                          | Status   |
-| ------                                                        | -------- |
-| [Build OAI gNB Container](#6-build-oai-gnb-container)         | ✅       |
-| [Handle CPU Architecture](#61-cpu-architecture-compatibility) | ⚠️       |
-| [Deploy Core Network](#7-deploy-core-network)                 | ✅       |
-| [Deploy OAI gNB](#8-deploy-oai-gnb)                           | ✅       |
+| Item                                                          | Status   |  Worker            |
+| ------                                                        | -------- | --           |
+| [Build OAI gNB Container](#6-build-oai-gnb-container)         | ✅       |              |
+| [Handle CPU Architecture](#61-cpu-architecture-compatibility) | ⚠️       | worker-rt-01 cant run the latest oai image. Other workers can. |
+| [Deploy Core Network](#7-deploy-core-network)                 | ✅       |              |
+| [Deploy OAI gNB](#8-deploy-oai-gnb)                           | ✅       |              |
 
 ### O-RU Integration Status
 
-| Vendor   | O-RU Model   | Connection   | Worker Node   | Status   | Section                                       |
-| -------- | ------------ | ------------ | ------------- | -------- | ---------                                     |
-| LiteON   | C3 4T4R      | FH 7.2       | worker-rt-00  | ✅       | [9.1](#91-liteon-c3-integration-worker-rt-00) |
-| LiteON   | C3 4T4R      | FH 7.2       | worker-rt-01  | ❌       | [9.2](#92-liteon-c3-integration-worker-rt-01) |
-| Pegatron | C3 4T4R      | FH 7.2       | lavoisier     | ⚠️       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
-| Foxconn  | RPQN         | FH 7.2       | TBD           | 🕒       | [9.4](#94-foxconn-integration)                |
+| Vendor   | O-RU Model   | Connection   | Worker Node   | NIC            | Status   | Section                                       |
+| -------- | ------------ | ------------ | ------------- | ---            | -------- | ---------                                     |
+| LiteON   | C3 4T4R      | FH 7.2       | worker-rt-00  | Intel E810-XXV | ✅       | [9.1](#91-liteon-c3-integration-worker-rt-00) |
+| Pegatron | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
+|          | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
+| Jura     | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
+| Foxconn  | RPQN         | FH 7.2       | TBD           |                | 🕒       | [9.4](#94-foxconn-integration)                |
 
 ### Testing & Validation
 
