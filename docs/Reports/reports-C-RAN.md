@@ -74,7 +74,7 @@ Branch: `production` | Last Updated: 2025-01-01
 
 ### Build & Deploy
 
-| Item                                                          | Status   |  Worker            |
+| Item                                                          | Status   |  Remarks            |
 | ------                                                        | -------- | --           |
 | [Build OAI gNB Container](#6-build-oai-gnb-container)         | ✅       |              |
 | [Handle CPU Architecture](#61-cpu-architecture-compatibility) | ⚠️       | worker-rt-01 cant run the latest oai image. Other workers can. |
@@ -89,7 +89,6 @@ Branch: `production` | Last Updated: 2025-01-01
 | Pegatron | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
 |          | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
 | Jura     | C3 4T4R      | FH 7.2       | lavoisier     | Intel E810-XXV | ✅       | [9.3](#93-pegatron-c3-integration-lavoisier)  |
-| Foxconn  | RPQN         | FH 7.2       | TBD           |                | 🕒       | [9.4](#94-foxconn-integration)                |
 
 ### Testing & Validation
 
